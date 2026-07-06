@@ -6,6 +6,7 @@ node_modules/
 npm-debug.log*
 .npm-cache/
 .netlify-mcp/
+.netlify-cli/
 .netlify/
 .deploy-upload/
 .agents/
