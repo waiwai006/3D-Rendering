@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.tools/
+*.tsbuildinfo
+.env*
+npm-debug.log*
+.npm-cache/
+.netlify-mcp/
+.netlify/
+.deploy-upload/
+.agents/
+.codex/
