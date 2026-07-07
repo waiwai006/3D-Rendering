@@ -6,6 +6,7 @@ import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanIma
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
 import { FURNISHING_CATALOG } from "../lib/furnishing-catalog";
 import { expandEstateQueries } from "../lib/estate-aliases";
+import { curatedFloorPlanCandidates } from "../lib/curated-floorplans";
 
 describe("sample layout", () => {
   it("is valid and contains the required MVP rooms", () => {
@@ -80,6 +81,12 @@ describe("sample layout", () => {
     expect(expandEstateQueries("\u592a\u53e4\u57ce")).toEqual(expect.arrayContaining(["Taikoo Shing", "Tai Koo Shing"]));
     expect(expandEstateQueries("\u6d77\u6021\u534a\u5cf6")).toEqual(expect.arrayContaining(["South Horizons"]));
     expect(expandEstateQueries("\u5eb7\u57ce")).toEqual(expect.arrayContaining(["LOHAS Park"]));
+  });
+
+  it("provides curated public Centaline fallbacks for common Chinese searches", () => {
+    expect(curatedFloorPlanCandidates({ estate: "\u592a\u53e4\u57ce" }).length).toBeGreaterThanOrEqual(3);
+    expect(curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6" }).length).toBeGreaterThanOrEqual(3);
+    expect(curatedFloorPlanCandidates({ estate: "\u5eb7\u57ce" }).length).toBeGreaterThanOrEqual(3);
   });
 
   it("uses positive real-world furnishing dimensions", () => {

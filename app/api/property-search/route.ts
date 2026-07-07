@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { expandEstateQueries } from "@/lib/estate-aliases";
+import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
 import type { FloorPlanCandidate, PropertySearchRequest, PropertySearchResponse } from "@/lib/property-search";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
@@ -147,7 +148,10 @@ export async function POST(request: Request) {
         return [];
       }
     }));
-    const candidates = batches.flat().sort((a, b) => b.confidence - a.confidence).slice(0, 12);
+    const liveCandidates = batches.flat();
+    const fallbackCandidates = liveCandidates.length ? [] : curatedFloorPlanCandidates(body);
+    if (fallbackCandidates.length) warnings.push("Live source crawling returned no floor-plan image, so curated public Centaline fallback matches were shown.");
+    const candidates = [...liveCandidates, ...fallbackCandidates].sort((a, b) => b.confidence - a.confidence).slice(0, 12);
     if (!candidates.length) warnings.push("No plan image was found in the accessible Centaline estate pages. Try another spelling, then upload or draw the plan.");
     warnings.push("Agency plans are secondary references. Confirm the tower, flat, orientation and dimensions visually before use.");
     return NextResponse.json({ candidates, searchedSources: ["Centaline public estate index"], warnings, sourceCoverage: SOURCE_COVERAGE } satisfies PropertySearchResponse);
