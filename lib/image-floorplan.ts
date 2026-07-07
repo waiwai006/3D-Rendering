@@ -3,8 +3,8 @@ import type { PropertyLayout } from "@/lib/layout-schema";
 type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: number; score: number };
 
 export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLayout): PropertyLayout {
-  const maxGridSide = 96;
-  const minGridSide = 24;
+  const maxGridSide = 48;
+  const minGridSide = 16;
   const aspect = image.width / Math.max(1, image.height);
   const columns = aspect >= 1 ? maxGridSide : Math.max(minGridSide, Math.round(maxGridSide * aspect));
   const rows = aspect >= 1 ? Math.max(minGridSide, Math.round(maxGridSide / aspect)) : maxGridSide;
@@ -16,9 +16,11 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
       const x1 = Math.max(x0 + 1, Math.floor((gx + 1) * image.width / columns));
       const y0 = Math.floor(gy * image.height / rows);
       const y1 = Math.max(y0 + 1, Math.floor((gy + 1) * image.height / rows));
+      const cx = Math.min(image.width - 1, Math.max(0, Math.floor((x0 + x1) / 2)));
+      const cy = Math.min(image.height - 1, Math.max(0, Math.floor((y0 + y1) / 2)));
       let count = 0;
       let darkCount = 0;
-      for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) {
+      for (let y = Math.max(0, cy - 1); y <= Math.min(image.height - 1, cy + 1); y++) for (let x = Math.max(0, cx - 1); x <= Math.min(image.width - 1, cx + 1); x++) {
         const index = (y * image.width + x) * 4;
         const luminance = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
         if (image.data[index + 3] > 80 && luminance < 125) darkCount++;
@@ -29,18 +31,19 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   }
 
   const segments: Segment[] = [];
+  const minimumRun = Math.max(3, Math.round(Math.min(columns, rows) * .08));
   for (let y = 0; y < rows; y++) {
     let start = -1;
     for (let x = 0; x <= columns; x++) {
       if (x < columns && dark[y][x]) { if (start < 0) start = x; }
-      else if (start >= 0) { if (x - start >= 7) segments.push({ orientation: "h", fixed: y, start, end: x, score: x - start }); start = -1; }
+      else if (start >= 0) { if (x - start >= minimumRun) segments.push({ orientation: "h", fixed: y, start, end: x, score: x - start }); start = -1; }
     }
   }
   for (let x = 0; x < columns; x++) {
     let start = -1;
     for (let y = 0; y <= rows; y++) {
       if (y < rows && dark[y][x]) { if (start < 0) start = y; }
-      else if (start >= 0) { if (y - start >= 7) segments.push({ orientation: "v", fixed: x, start, end: y, score: y - start }); start = -1; }
+      else if (start >= 0) { if (y - start >= minimumRun) segments.push({ orientation: "v", fixed: x, start, end: y, score: y - start }); start = -1; }
     }
   }
 
@@ -48,7 +51,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   for (const segment of segments.sort((a, b) => b.score - a.score)) {
     const duplicate = chosen.some((other) => other.orientation === segment.orientation && Math.abs(other.fixed - segment.fixed) <= 2 && Math.abs(other.start - segment.start) <= 4 && Math.abs(other.end - segment.end) <= 4);
     if (!duplicate) chosen.push(segment);
-    if (chosen.length >= 28) break;
+    if (chosen.length >= 20) break;
   }
 
   const scale = 10 / Math.max(columns, rows);

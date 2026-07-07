@@ -103,7 +103,7 @@ export function FloorPlanCropper({ src, onAnalyze, onAnalyzeError, labels }: { s
         const sx = Math.max(0, (selection.x - dx) / fit); const sy = Math.max(0, (selection.y - dy) / fit);
         const sw = Math.min(image.naturalWidth - sx, selection.width / fit); const sh = Math.min(image.naturalHeight - sy, selection.height / fit);
         if (sw <= 0 || sh <= 0) throw new Error("Select an area inside the floor plan before creating the 3D estimate.");
-        const maxPixels = 80_000;
+        const maxPixels = 20_000;
         const scale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, sw * sh)));
         const output = document.createElement("canvas"); output.width = Math.max(1, Math.round(sw * scale)); output.height = Math.max(1, Math.round(sh * scale));
         const context = output.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("The browser could not prepare the selected area for analysis.");
