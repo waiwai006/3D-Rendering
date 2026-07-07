@@ -56,23 +56,23 @@ describe("sample layout", () => {
 
   it("supports exact Chinese estate-name matching", () => {
     const examples = [
-      ["太古城", "https://hk.centanet.com/estate/%E5%A4%AA%E5%8F%A4%E5%9F%8E/3-OVDUURFSRJ"],
-      ["美孚新邨", "https://hk.centanet.com/estate/%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8/3-UDDCFRDSRR"],
-      ["黃埔花園", "https://hk.centanet.com/estate/%E9%BB%83%E5%9F%94%E8%8A%B1%E5%9C%92/3-MZDIIHHAHN"],
+      ["\u592a\u53e4\u57ce", "https://hk.centanet.com/estate/%E5%A4%AA%E5%8F%A4%E5%9F%8E/3-OVDUURFSRJ"],
+      ["\u7f8e\u5b5a\u65b0\u90a8", "https://hk.centanet.com/estate/%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8/3-UDDCFRDSRR"],
+      ["\u9ec3\u57d4\u82b1\u5712", "https://hk.centanet.com/estate/%E9%BB%83%E5%9F%94%E8%8A%B1%E5%9C%92/3-MZDIIHHAHN"],
     ];
     for (const [query, url] of examples) {
       const estateName = estateNameFromSourceUrl(url);
       expect(estateName).toBe(query);
       expect(estateMatchScore(query, estateName)).toBe(1);
     }
-    expect(estateMatchScore("黃埔花園", "黃埔新天地")).toBe(0);
-    expect(estateMatchScore("美孚新村", "美孚新邨")).toBe(1);
+    expect(estateMatchScore("\u9ec3\u57d4\u82b1\u5712", "\u9ec3\u57d4\u65b0\u5929\u5730")).toBe(0);
+    expect(estateMatchScore("\u7f8e\u5b5a\u65b0\u6751", "\u7f8e\u5b5a\u65b0\u90a8")).toBe(1);
   });
 
   it("expands Chinese estate names into English aliases for search", () => {
-    expect(expandEstateQueries("太古城")).toEqual(expect.arrayContaining(["Taikoo Shing", "Tai Koo Shing"]));
-    expect(expandEstateQueries("海怡半島")).toEqual(expect.arrayContaining(["South Horizons"]));
-    expect(expandEstateQueries("康城")).toEqual(expect.arrayContaining(["LOHAS Park"]));
+    expect(expandEstateQueries("\u592a\u53e4\u57ce")).toEqual(expect.arrayContaining(["Taikoo Shing", "Tai Koo Shing"]));
+    expect(expandEstateQueries("\u6d77\u6021\u534a\u5cf6")).toEqual(expect.arrayContaining(["South Horizons"]));
+    expect(expandEstateQueries("\u5eb7\u57ce")).toEqual(expect.arrayContaining(["LOHAS Park"]));
   });
 
   it("uses positive real-world furnishing dimensions", () => {

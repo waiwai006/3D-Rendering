@@ -2,10 +2,10 @@ export function normalizeSourceText(value = "") {
   let decoded = value;
   try { decoded = decodeURIComponent(value); } catch { /* Plain page text can contain literal percent signs. */ }
   const chineseVariants: Record<string, string> = {
-    "臺": "台", "灣": "湾", "園": "园", "麗": "丽", "寶": "宝", "華": "华", "龍": "龙",
-    "廣": "广", "樂": "乐", "馬": "马", "門": "门", "東": "东", "興": "兴", "薈": "荟",
-    "瓏": "珑", "匯": "汇", "滙": "汇", "邨": "村", "峯": "峰", "號": "号", "樓": "楼",
-    "體": "体", "濱": "滨", "壹": "一", "貝": "贝", "藍": "蓝", "昇": "升", "御": "御",
+    "\u81fa": "\u53f0", "\u7063": "\u6e7e", "\u5712": "\u56ed", "\u9e97": "\u4e3d", "\u5bf6": "\u5b9d", "\u83ef": "\u534e", "\u9f8d": "\u9f99",
+    "\u5ee3": "\u5e7f", "\u6a02": "\u4e50", "\u99ac": "\u9a6c", "\u9580": "\u95e8", "\u6771": "\u4e1c", "\u8208": "\u5174", "\u8588": "\u835f",
+    "\u74cf": "\u73d1", "\u532f": "\u6c47", "\u6ed9": "\u6c47", "\u90a8": "\u6751", "\u5cf0": "\u5cf0", "\u865f": "\u53f7", "\u6a13": "\u697c",
+    "\u9ad4": "\u4f53", "\u6ff1": "\u6ee8", "\u58f9": "\u4e00", "\u8c9d": "\u8d1d", "\u85cd": "\u84dd", "\u6607": "\u5347", "\u79a6": "\u79a6",
   };
   return [...decoded.toLocaleLowerCase()].map((character) => chineseVariants[character] ?? character).join("")
     .replace(/\band\b/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
