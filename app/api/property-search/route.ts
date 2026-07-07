@@ -35,7 +35,7 @@ async function getEstateUrls(language: "en" | "zh" | "cn") {
   const cached = sitemapCache.get(language);
   if (cached && cached.expires > Date.now()) return cached.urls;
   const response = await fetch(CENTALINE_SITEMAPS[language], {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; FlatForm/0.2; property planning)" },
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; HKPropertyDesign/0.2; property planning)" },
     signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) throw new Error(`Centaline estate index returned ${response.status}`);
@@ -47,7 +47,7 @@ async function getEstateUrls(language: "en" | "zh" | "cn") {
 
 async function candidatesFromEstatePage(url: string, estateName: string, request: PropertySearchRequest, baseScore: number) {
   const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; FlatForm/0.2; property planning)" },
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; HKPropertyDesign/0.2; property planning)" },
     signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) return [];

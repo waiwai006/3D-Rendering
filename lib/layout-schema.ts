@@ -89,7 +89,7 @@ export const SOURCE_LABELS: Record<SourceType, string> = {
   official: "Official layout",
   secondary: "Secondary source",
   user_photos: "Estimated from photos",
-  manual: "Manual approximation",
+  manual: "User-created layout",
 };
 
 export const ROOM_LABELS: Record<RoomType, string> = {
