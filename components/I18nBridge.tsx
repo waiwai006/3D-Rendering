@@ -158,30 +158,46 @@ const placeholders: Record<string, [string, string]> = {
 export function I18nBridge({ language }: { language: Language }) {
   useEffect(() => {
     document.documentElement.lang = language === "en" ? "en" : language === "zh-Hant" ? "zh-HK" : "zh-CN";
+    let applying = false;
     const apply = () => {
+      if (applying) return;
+      applying = true;
       const table = language === "en" ? 0 : language === "zh-Hant" ? 1 : 2;
       const all = Object.entries(translations).map(([en, zh]) => [en, zh[0], zh[1]] as const);
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const text = node.nodeValue ?? "";
-        const trimmed = text.trim();
-        if (!trimmed) continue;
-        const row = all.find((entry) => entry.includes(trimmed));
-        if (!row) continue;
-        node.nodeValue = text.replace(trimmed, row[table]);
+      try {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const text = node.nodeValue ?? "";
+          const trimmed = text.trim();
+          if (!trimmed) continue;
+          const row = all.find((entry) => entry.includes(trimmed));
+          if (!row) continue;
+          const next = text.replace(trimmed, row[table]);
+          if (next !== text) node.nodeValue = next;
+        }
+        document.querySelectorAll<HTMLInputElement>("input[placeholder]").forEach((input) => {
+          const row = Object.entries(placeholders).map(([en, zh]) => [en, zh[0], zh[1]]).find((entry) => entry.includes(input.placeholder));
+          if (row && input.placeholder !== row[table]) input.placeholder = row[table];
+        });
+        document.querySelectorAll<HTMLOptionElement>("option").forEach((option) => {
+          const row = all.find((entry) => entry.includes(option.textContent?.trim() ?? ""));
+          if (row && option.textContent !== row[table]) option.textContent = row[table];
+        });
+      } finally {
+        applying = false;
       }
-      document.querySelectorAll<HTMLInputElement>("input[placeholder]").forEach((input) => {
-        const row = Object.entries(placeholders).map(([en, zh]) => [en, zh[0], zh[1]]).find((entry) => entry.includes(input.placeholder));
-        if (row) input.placeholder = row[table];
-      });
-      document.querySelectorAll<HTMLOptionElement>("option").forEach((option) => {
-        const row = all.find((entry) => entry.includes(option.textContent?.trim() ?? ""));
-        if (row) option.textContent = row[table];
-      });
     };
     apply();
-    const observer = new MutationObserver(() => apply());
+    let queued = false;
+    const observer = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(() => {
+        queued = false;
+        apply();
+      });
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [language]);
