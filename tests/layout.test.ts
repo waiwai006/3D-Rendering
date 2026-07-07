@@ -4,6 +4,7 @@ import { validateLayout } from "../lib/layout-schema";
 import { buildManualLayout } from "../lib/manual-layout";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages } from "../lib/source-match";
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
+import { FURNISHING_CATALOG } from "../lib/furnishing-catalog";
 
 describe("sample layout", () => {
   it("is valid and contains the required MVP rooms", () => {
@@ -53,7 +54,27 @@ describe("sample layout", () => {
   });
 
   it("supports exact Chinese estate-name matching", () => {
-    expect(estateMatchScore("尚翹峰", "尚翹峰")).toBe(1);
-    expect(estateMatchScore("尚翘峰", "尚翘峰")).toBe(1);
+    const examples = [
+      ["太古城", "https://hk.centanet.com/estate/%E5%A4%AA%E5%8F%A4%E5%9F%8E/3-OVDUURFSRJ"],
+      ["美孚新邨", "https://hk.centanet.com/estate/%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8/3-UDDCFRDSRR"],
+      ["黃埔花園", "https://hk.centanet.com/estate/%E9%BB%83%E5%9F%94%E8%8A%B1%E5%9C%92/3-MZDIIHHAHN"],
+    ];
+    for (const [query, url] of examples) {
+      const estateName = estateNameFromSourceUrl(url);
+      expect(estateName).toBe(query);
+      expect(estateMatchScore(query, estateName)).toBe(1);
+    }
+    expect(estateMatchScore("黃埔花園", "黃埔新天地")).toBe(0);
+    expect(estateMatchScore("美孚新村", "美孚新邨")).toBe(1);
+  });
+
+  it("uses positive real-world furnishing dimensions", () => {
+    expect(FURNISHING_CATALOG.length).toBeGreaterThanOrEqual(6);
+    for (const item of FURNISHING_CATALOG) {
+      expect(item.dimensions.widthMeters).toBeGreaterThan(0);
+      expect(item.dimensions.depthMeters).toBeGreaterThan(0);
+      expect(item.dimensions.heightMeters).toBeGreaterThan(0);
+      expect(item.sourceUrl).toMatch(/^https:\/\//);
+    }
   });
 });

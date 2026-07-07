@@ -3,6 +3,7 @@ node_modules/
 .tools/
 *.tsbuildinfo
 .env*
+!.env.example
 npm-debug.log*
 .npm-cache/
 .netlify-mcp/

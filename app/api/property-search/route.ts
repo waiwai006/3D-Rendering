@@ -78,14 +78,19 @@ export async function POST(request: Request) {
     if (!body.estate?.trim() && !body.address?.trim()) return NextResponse.json({ error: "Estate or address is required." }, { status: 400 });
     if (!body.estate?.trim()) return NextResponse.json({ candidates: [], searchedSources: ["Centaline"], warnings: ["Automatic matching currently requires an estate/development name. Add one, or upload/draw the plan."], sourceCoverage: SOURCE_COVERAGE } satisfies PropertySearchResponse);
 
-    const languages: Array<"en" | "zh" | "cn"> = /[\u3400-\u9fff]/.test(body.estate) ? ["zh", "cn"] : ["en"];
+    const chineseQuery = /[\u3400-\u9fff]/.test(body.estate);
+    const languages: Array<"en" | "zh" | "cn"> = chineseQuery ? ["zh", "cn"] : ["en"];
     const urls = [...new Set((await Promise.all(languages.map(getEstateUrls))).flat())];
     const ranked = urls.map((url) => ({ url, name: estateNameFromSourceUrl(url), score: estateMatchScore(body.estate, estateNameFromSourceUrl(url)) }))
-      .filter((item) => item.score >= .55)
-      .sort((a, b) => b.score - a.score || (b.url.includes("/3-") ? 1 : 0) - (a.url.includes("/3-") ? 1 : 0));
+      .filter((item) => item.score >= (chineseQuery ? .72 : .55))
+      .sort((a, b) => b.score - a.score || Number(b.url.includes("/3-")) - Number(a.url.includes("/3-")));
+
+    // An exact Chinese estate match is substantially safer than similarly named phases or districts.
+    const exactMatches = ranked.filter((item) => item.score === 1);
+    const rankedPool = exactMatches.length ? exactMatches : ranked;
 
     const unique: typeof ranked = [];
-    for (const item of ranked) {
+    for (const item of rankedPool) {
       if (!unique.some((entry) => normalizeSourceText(entry.name) === normalizeSourceText(item.name))) unique.push(item);
       if (unique.length === 3) break;
     }

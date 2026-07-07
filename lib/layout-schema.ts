@@ -48,6 +48,7 @@ export interface PropertyLayout {
   doors: LayoutDoor[];
   windows: LayoutWindow[];
   notes: { message: string; severity: "info" | "warning" | "error" }[];
+  furnishings?: import("./furnishing-catalog").PlacedFurnishing[];
 }
 
 export function validateLayout(layout: PropertyLayout): string[] {
@@ -67,6 +68,10 @@ export function validateLayout(layout: PropertyLayout): string[] {
     if (opening.widthMeters <= 0 || opening.widthMeters > wallLength) errors.push(`${opening.id}: opening width does not fit its wall.`);
     if (opening.positionRatioOnWall < 0 || opening.positionRatioOnWall > 1) errors.push(`${opening.id}: position must be on its wall.`);
   }
+  for (const item of layout.furnishings ?? []) {
+    if (!ids.has(item.roomId)) errors.push(`${item.id}: referenced room does not exist.`);
+    if (!Number.isFinite(item.position.x) || !Number.isFinite(item.position.y) || !Number.isFinite(item.rotationDegrees)) errors.push(`${item.id}: placement must use finite coordinates.`);
+  }
   return errors;
 }
 
@@ -75,6 +80,7 @@ export function isPropertyLayout(value: unknown): value is PropertyLayout {
   const candidate = value as Partial<PropertyLayout>;
   if (candidate.schemaVersion !== "1.0" || !candidate.property || !candidate.unit) return false;
   if (!Array.isArray(candidate.rooms) || !Array.isArray(candidate.walls) || !Array.isArray(candidate.doors) || !Array.isArray(candidate.windows) || !Array.isArray(candidate.notes)) return false;
+  if (candidate.furnishings !== undefined && (!Array.isArray(candidate.furnishings) || !candidate.furnishings.every((item) => Boolean(item && typeof item.id === "string" && typeof item.catalogId === "string" && typeof item.roomId === "string" && item.position && Number.isFinite(item.position.x) && Number.isFinite(item.position.y) && Number.isFinite(item.rotationDegrees))))) return false;
   return candidate.rooms.every((room) => Boolean(room && typeof room.id === "string" && room.dimensions && room.position))
     && candidate.walls.every((wall) => Boolean(wall && typeof wall.id === "string" && wall.start && wall.end));
 }

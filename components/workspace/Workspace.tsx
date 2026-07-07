@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Check, ChevronRight, ExternalLink, FileSearch, Home, Info, Loader2, MapPin, PenTool, RotateCcw, Save, ShieldCheck, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronRight, Cloud, ExternalLink, FileSearch, Home, Info, Loader2, LogIn, LogOut, MapPin, Move, PackagePlus, PenTool, RotateCcw, RotateCw, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
 import { ManualFloorPlan } from "@/components/editor/ManualFloorPlan";
 import { FloorPlanCropper, PlanZoomViewer } from "@/components/editor/PlanImageTools";
 import { I18nBridge, type Language } from "@/components/I18nBridge";
@@ -9,12 +9,14 @@ import { PropertyViewer } from "@/components/viewer/PropertyViewer";
 import { sampleLayout } from "@/data/sample-layout";
 import { buildManualLayout, type DrawnRoom } from "@/lib/manual-layout";
 import { buildEstimatedLayoutFromCrop } from "@/lib/image-floorplan";
+import { FURNISHING_CATALOG, catalogItem } from "@/lib/furnishing-catalog";
 import type { FloorPlanCandidate, PropertySearchResponse, SourceCoverage } from "@/lib/property-search";
 import { isPropertyLayout, ROOM_LABELS, SOURCE_LABELS, validateLayout, type PropertyLayout, type RoomType } from "@/lib/layout-schema";
 
 type Step = "details" | "layout" | "explore";
 type StartMode = "address" | "upload" | "draw";
 type AreaUnit = "sqft" | "sqm";
+type AccountUser = { name?: string; email?: string; picture?: string };
 const STORAGE_KEY = "harbour-home-planner-project-v2";
 const SQFT_PER_SQM = 10.7639;
 
@@ -53,6 +55,12 @@ export function Workspace() {
   const [planName, setPlanName] = useState<string>();
   const [planPreviewUrl, setPlanPreviewUrl] = useState<string>();
   const [referencePlanUrl, setReferencePlanUrl] = useState<string>();
+  const [pendingCatalogId, setPendingCatalogId] = useState<string>();
+  const [selectedFurnishingId, setSelectedFurnishingId] = useState<string>();
+  const [movingFurnishingId, setMovingFurnishingId] = useState<string>();
+  const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+  const [authConfigured, setAuthConfigured] = useState(false);
+  const [cloudSaving, setCloudSaving] = useState(false);
   const localPlanUrl = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -74,6 +82,27 @@ export function Workspace() {
   }, []);
 
   useEffect(() => () => { if (localPlanUrl.current) URL.revokeObjectURL(localPlanUrl.current); }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/session").then((response) => response.json()).then(async (session: { configured: boolean; user: AccountUser | null }) => {
+      if (!active) return;
+      setAuthConfigured(session.configured);
+      setAccountUser(session.user);
+      if (!session.user) return;
+      const response = await fetch("/api/project");
+      if (!response.ok || !active) return;
+      const result = await response.json() as { project?: { layout?: unknown; planName?: string; referencePlan?: string } | null };
+      if (result.project?.layout && isPropertyLayout(result.project.layout) && validateLayout(result.project.layout).length === 0) {
+        setLayout(result.project.layout);
+        setSelectedRoomId(result.project.layout.rooms[0]?.id ?? "");
+        setPlanName(result.project.planName);
+        setReferencePlanUrl(result.project.referencePlan);
+        setNotice("Your latest cloud project was restored.");
+      }
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const selectedRoom = useMemo(() => layout.rooms.find((room) => room.id === selectedRoomId) ?? layout.rooms[0], [layout.rooms, selectedRoomId]);
   const displayedArea = layout.unit.saleableAreaSqFt ? (areaUnit === "sqft" ? layout.unit.saleableAreaSqFt : layout.unit.saleableAreaSqFt / SQFT_PER_SQM) : "";
@@ -156,13 +185,27 @@ export function Workspace() {
     setNotice(planName ? `Traced layout created from ${planName}. Please verify every measurement.` : "Manual layout created. Please verify every measurement.");
   };
 
-  const save = () => {
+  const save = async () => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
       setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-      setNotice("Project saved in this browser.");
-    } catch {
-      setNotice("This browser could not save the project. Your current changes are still visible.");
+      if (!accountUser) {
+        setNotice(authConfigured ? "Project saved in this browser. Sign in to back it up to the cloud." : "Project saved in this browser. Cloud login will be available after Auth0 is configured.");
+        return;
+      }
+      setCloudSaving(true);
+      let referencePlan = referencePlanUrl;
+      if (referencePlan?.startsWith("blob:")) {
+        const blob = await fetch(referencePlan).then((response) => response.blob());
+        referencePlan = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob); });
+      }
+      const response = await fetch("/api/project", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout, planName, referencePlan }) });
+      if (!response.ok) throw new Error((await response.json() as { error?: string }).error ?? "Cloud save failed.");
+      setNotice("Project saved securely to your account and this browser.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The project could not be saved. Your current changes are still visible.");
+    } finally {
+      setCloudSaving(false);
     }
   };
 
@@ -173,12 +216,49 @@ export function Workspace() {
     setNotice("Demo layout restored.");
   };
 
+  const placeFurnishing = (roomId: string, x: number, y: number) => {
+    if (!pendingCatalogId && !movingFurnishingId) return;
+    const id = `item-${Date.now()}`;
+    setLayout((current) => {
+      const room = current.rooms.find((candidate) => candidate.id === roomId);
+      const movingItem = (current.furnishings ?? []).find((item) => item.id === movingFurnishingId);
+      const selectedCatalogId = pendingCatalogId ?? movingItem?.catalogId;
+      if (!room || !selectedCatalogId) return current;
+      const catalog = catalogItem(selectedCatalogId);
+      if (!catalog) return current;
+      const halfWidth = Math.min(catalog.dimensions.widthMeters, room.dimensions.widthMeters) / 2;
+      const halfDepth = Math.min(catalog.dimensions.depthMeters, room.dimensions.lengthMeters) / 2;
+      const position = {
+        x: Math.min(room.position.x + room.dimensions.widthMeters - halfWidth, Math.max(room.position.x + halfWidth, x)),
+        y: Math.min(room.position.y + room.dimensions.lengthMeters - halfDepth, Math.max(room.position.y + halfDepth, y)),
+      };
+      if (movingItem) return { ...current, furnishings: (current.furnishings ?? []).map((item) => item.id === movingItem.id ? { ...item, roomId, position } : item) };
+      return { ...current, furnishings: [...(current.furnishings ?? []), { id, catalogId: selectedCatalogId, roomId, position, rotationDegrees: 0 }] };
+    });
+    setSelectedFurnishingId(movingFurnishingId ?? id);
+    setPendingCatalogId(undefined);
+    setMovingFurnishingId(undefined);
+    setNotice("Item placed to scale. Select it in the 3D view to rotate or remove it.");
+  };
+
+  const rotateFurnishing = () => {
+    if (!selectedFurnishingId) return;
+    setLayout((current) => ({ ...current, furnishings: (current.furnishings ?? []).map((item) => item.id === selectedFurnishingId ? { ...item, rotationDegrees: (item.rotationDegrees + 45) % 360 } : item) }));
+  };
+
+  const removeFurnishing = () => {
+    if (!selectedFurnishingId) return;
+    setLayout((current) => ({ ...current, furnishings: (current.furnishings ?? []).filter((item) => item.id !== selectedFurnishingId) }));
+    setSelectedFurnishingId(undefined);
+    setMovingFurnishingId(undefined);
+  };
+
   return (
     <main className="app-shell" id="top">
       <I18nBridge language={language} />
       <header className="topbar">
         <a className="brand" href="#top" aria-label="FlatForm home"><span className="brand-mark"><Home size={18} /></span><span>FlatForm</span></a>
-        <div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button><button className={language === "zh-Hant" ? "active" : ""} onClick={() => setLanguage("zh-Hant")}>繁</button><button className={language === "zh-Hans" ? "active" : ""} onClick={() => setLanguage("zh-Hans")}>简</button></div><span className="prototype-pill">MVP prototype</span><button className="button ghost" onClick={save}><Save size={16} /> Save project</button></div>
+        <div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button><button className={language === "zh-Hant" ? "active" : ""} onClick={() => setLanguage("zh-Hant")}>繁</button><button className={language === "zh-Hans" ? "active" : ""} onClick={() => setLanguage("zh-Hans")}>简</button></div>{accountUser ? <div className="account-chip"><Cloud size={15} /><span>{accountUser.name ?? accountUser.email ?? "Signed in"}</span><a href="/auth/logout" aria-label="Sign out"><LogOut size={14} /></a></div> : authConfigured ? <a className="button ghost" href="/auth/login"><LogIn size={16} /> Sign in</a> : <button className="button ghost" onClick={() => setNotice("Auth0 credentials are required before account login can be enabled.")}><LogIn size={16} /> Sign in</button>}<button className="button ghost" disabled={cloudSaving} onClick={save}>{cloudSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} />} {accountUser ? "Save to cloud" : "Save project"}</button></div>
       </header>
 
       <nav className="stepper" aria-label="Project steps">
@@ -199,6 +279,7 @@ export function Workspace() {
           {mode === "address" && <div className="card source-form">
             <div className="card-heading"><span className="icon-tile"><Building2 size={20} /></span><div><h2>Locate the exact property</h2><p>Estate or address is required for lookup. Tower, block, floor and flat are optional but improve matching.</p></div></div>
             <div className="form-grid"><label>Estate / development<input value={layout.property.name} onChange={(event) => setProperty("name", event.target.value)} placeholder="e.g. Mei Foo Sun Chuen / 美孚新邨" /></label><label>Address<input value={layout.property.address} onChange={(event) => setProperty("address", event.target.value)} placeholder="Street name and number" /></label><label>Tower<input value={layout.unit.tower ?? ""} onChange={(event) => setUnit("tower", event.target.value)} placeholder="Optional" /></label><label>Block<input value={layout.unit.block ?? ""} onChange={(event) => setUnit("block", event.target.value)} placeholder="Optional" /></label><label>Floor<input value={layout.unit.floor ?? ""} onChange={(event) => setUnit("floor", event.target.value)} placeholder="Optional" /></label><label>Flat / unit<input value={layout.unit.flat ?? ""} onChange={(event) => setUnit("flat", event.target.value)} placeholder="Optional" /></label></div>
+            <div className="search-examples"><span>Traditional Chinese examples</span>{["太古城", "美孚新邨", "黃埔花園"].map((example) => <button type="button" key={example} onClick={() => setProperty("name", example)}>{example}</button>)}</div>
             <div className="area-row"><label>Saleable area<div className="area-control"><input type="number" min="1" step="0.1" value={typeof displayedArea === "number" ? Number(displayedArea.toFixed(2)) : ""} onChange={(event) => setArea(event.target.value)} /><div className="unit-switch"><button className={areaUnit === "sqft" ? "active" : ""} onClick={() => setAreaUnit("sqft")} type="button">sq ft</button><button className={areaUnit === "sqm" ? "active" : ""} onClick={() => setAreaUnit("sqm")} type="button">m²</button></div></div></label></div>
             <button className="button primary wide" disabled={searchState === "searching"} onClick={searchPublicSources}>{searchState === "searching" ? <Loader2 className="spin" size={17} /> : <FileSearch size={17} />} {searchState === "searching" ? "Searching public sources..." : "Search and match floor plans"}</button>
             {searchState === "idle" && <div className="lookup-result"><ShieldCheck size={19} /><div><strong>Automatic source matching</strong><p>FlatForm searches accessible estate indexes and floor-plan metadata. Official SRPE remains the highest-authority source; agency plans are marked secondary.</p><div className="lookup-links"><a href="https://www.srpe.gov.hk/opip/" target="_blank" rel="noreferrer">SRPE official database</a><a href="https://www.bd.gov.hk/en/resources/online-tools/BRAVO-online-building-records/index.html" target="_blank" rel="noreferrer">Older buildings: BRAVO</a></div></div></div>}
@@ -229,8 +310,10 @@ export function Workspace() {
       {step === "explore" && selectedRoom && (
         <section className="viewer-page">
           <div className="viewer-toolbar"><div><p className="eyebrow">Interactive model</p><h1>{layout.property.name || "Untitled property"}</h1><p>{layout.property.address || "Address not added"} · {layout.unit.saleableAreaSqFt ? areaUnit === "sqft" ? `${Number(layout.unit.saleableAreaSqFt.toFixed(1))} sq ft` : `${Number((layout.unit.saleableAreaSqFt / SQFT_PER_SQM).toFixed(1))} m²` : "Area unknown"}</p></div><div className="viewer-actions"><button className="button ghost" onClick={() => setStep("layout")}>Edit layout</button><button className="button primary" onClick={save}><Save size={16} /> Save</button></div></div>
-          <div className="source-banner compact"><div><ShieldCheck size={19} /><strong>{SOURCE_LABELS[layout.property.sourceType]}</strong><span>Planning-only approximation</span></div><Confidence value={layout.property.confidence} /></div>
-          <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} /><div className="viewer-hint">Drag to orbit · Scroll to zoom · Select a room to focus</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div></div>
+          <div className="design-studio">
+            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setMovingFurnishingId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{(pendingCatalogId || movingFurnishingId) && <div className="placement-prompt"><strong>{pendingCatalogId ? catalogItem(pendingCatalogId)?.name : "Move selected item"}</strong><span>Click the desired position on a room floor.</span></div>}{selectedFurnishingId && <div className="item-actions"><button className="button ghost small" onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(selectedFurnishingId); }}><Move size={15} /> Move</button><button className="button ghost small" onClick={rotateFurnishing}><RotateCw size={15} /> Rotate 45°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={15} /> Remove</button></div>}<details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
+            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={setSelectedFurnishingId} onFloorPoint={placeFurnishing} /><div className="viewer-hint">Drag to orbit · Scroll to zoom · Click a floor to place an item</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div></div>
+          </div>
         </section>
       )}
     </main>

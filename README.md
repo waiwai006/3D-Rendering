@@ -1,5 +1,18 @@
 # FlatForm
 
+## Account login and cloud saving
+
+The app supports Auth0 Universal Login and stores each signed-in user's latest project in a private, user-scoped Netlify Blobs record. Copy `.env.example` to `.env.local` and provide credentials from an Auth0 **Regular Web Application**.
+
+Configure these Auth0 application URLs:
+
+- Allowed callback URL: `http://localhost:3000/auth/callback`
+- Allowed logout URL: `http://localhost:3000`
+- Production callback URL: `https://hkpropertydesign.netlify.app/auth/callback`
+- Production logout URL: `https://hkpropertydesign.netlify.app`
+
+Set the same five environment variables in Netlify, changing `APP_BASE_URL` to `https://hkpropertydesign.netlify.app`. Until all variables are present, browser-local saving remains available and the sign-in control explains that Auth0 setup is required.
+
 FlatForm is a working MVP for reconstructing and exploring a compact Hong Kong flat. It combines a guided project form, an honest provenance/confidence layer, a small manual room editor, browser-local save/load, and a data-driven React Three Fiber viewer.
 
 ## Run locally
