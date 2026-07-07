@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     if (!response.ok) return NextResponse.json({ error: "Image could not be loaded" }, { status: 502 });
     const type = response.headers.get("content-type") ?? "image/jpeg";
     if (!type.startsWith("image/")) return NextResponse.json({ error: "Source is not an image" }, { status: 415 });
-    return new NextResponse(await response.arrayBuffer(), { headers: { "Content-Type": type, "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" } });
+    return new NextResponse(await response.arrayBuffer(), { headers: { "Content-Type": type, "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
   } catch {
     return NextResponse.json({ error: "Invalid image URL" }, { status: 400 });
   }

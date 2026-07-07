@@ -63,6 +63,7 @@ export function Workspace() {
   const [planName, setPlanName] = useState<string>();
   const [planPreviewUrl, setPlanPreviewUrl] = useState<string>();
   const [referencePlanUrl, setReferencePlanUrl] = useState<string>();
+  const [cropperRevision, setCropperRevision] = useState(0);
   const [pendingCatalogId, setPendingCatalogId] = useState<string>();
   const [selectedFurnishingId, setSelectedFurnishingId] = useState<string>();
   const [movingFurnishingId, setMovingFurnishingId] = useState<string>();
@@ -197,6 +198,7 @@ export function Workspace() {
     setPlanName(undefined);
     setPlanPreviewUrl(undefined);
     setReferencePlanUrl(undefined);
+    setCropperRevision((value) => value + 1);
     if (localPlanUrl.current) {
       URL.revokeObjectURL(localPlanUrl.current);
       localPlanUrl.current = undefined;
@@ -222,22 +224,33 @@ export function Workspace() {
   const confirmCandidate = (candidate: FloorPlanCandidate) => {
     setLayout((current) => ({ ...current, property: { ...current.property, sourceType: candidate.sourceType, sourceUrl: candidate.sourceUrl, confidence: candidate.confidence } }));
     setPlanName(candidate.title);
-    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(candidate.imageUrl)}&candidate=${encodeURIComponent(candidate.id)}`;
-    setPlanPreviewUrl(proxyUrl);
-    setReferencePlanUrl(proxyUrl);
+    setPlanPreviewUrl(undefined);
+    setReferencePlanUrl(undefined);
+    setCropperRevision((value) => value + 1);
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(candidate.imageUrl)}&candidate=${encodeURIComponent(candidate.id)}&v=${Date.now()}`;
+    window.setTimeout(() => {
+      setPlanPreviewUrl(proxyUrl);
+      setReferencePlanUrl(proxyUrl);
+      setCropperRevision((value) => value + 1);
+    }, 0);
     setPendingCandidate(undefined);
     setMode("upload");
     setNotice("Plan confirmed as a tracing reference. Trace its room boundaries, then verify dimensions before 3D generation.");
   };
 
   const analyzeCrop = (dataUrl: string, imageData: ImageData) => {
-    const estimated = buildEstimatedLayoutFromCrop(imageData, layout);
-    setLayout(estimated);
-    setSelectedRoomId(estimated.rooms[0].id);
-    setPlanPreviewUrl(dataUrl);
-    setReferencePlanUrl(dataUrl);
-    setStep("layout");
-    setNotice("A low-confidence 3D estimate was created from the selected image area. Correct its scale, walls and openings before relying on it.");
+    try {
+      const estimated = buildEstimatedLayoutFromCrop(imageData, layout);
+      setLayout(estimated);
+      setSelectedRoomId(estimated.rooms[0].id);
+      setPlanPreviewUrl(dataUrl);
+      setReferencePlanUrl(dataUrl);
+      setCropperRevision((value) => value + 1);
+      setStep("layout");
+      setNotice("A low-confidence 3D estimate was created from the selected image area. Correct its scale, walls and openings before relying on it.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The selected area could not be converted into a 3D estimate.");
+    }
   };
 
   const handlePlanUpload = (file?: File) => {
@@ -248,6 +261,7 @@ export function Workspace() {
     localPlanUrl.current = objectUrl;
     setPlanPreviewUrl(objectUrl);
     setReferencePlanUrl(objectUrl);
+    setCropperRevision((value) => value + 1);
     setMode("upload");
   };
 
@@ -432,7 +446,7 @@ export function Workspace() {
             {pendingCandidate && <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm floor plan"><div className="confirm-dialog"><button className="dialog-close" aria-label="Close confirmation" onClick={() => setPendingCandidate(undefined)}><X size={18} /></button><p className="eyebrow">Confirm before 3D use</p><h2>Does this plan match your property?</h2><PlanZoomViewer src={pendingCandidate.imageUrl} alt={`${pendingCandidate.estateName} plan for confirmation`} /><div className="confirm-facts"><span><strong>Estate</strong>{pendingCandidate.estateName}</span><span><strong>Source</strong>{pendingCandidate.source} · secondary</span><span><strong>Matched</strong>{pendingCandidate.matchedFields.join(", ")}</span></div><p>Zoom in and check tower/block, flat, orientation and saleable area. Confirmation uses this image as a tracing reference; it does not make the source official.</p><div className="dialog-actions"><button className="button ghost" onClick={() => setPendingCandidate(undefined)}>No, choose another</button><button className="button primary" onClick={() => confirmCandidate(pendingCandidate)}><Check size={16} /> Yes, use this plan</button></div></div></div>}
           </div>}
 
-          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">PDF selected. Export the relevant page as an image for cropping, or draw on the blank grid below.</p>}{planPreviewUrl && <><FloorPlanCropper key={`crop-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
+          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">Loading selected floor plan...</p>}{planPreviewUrl && <><FloorPlanCropper key={`crop-${cropperRevision}-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} onAnalyzeError={setNotice} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${cropperRevision}-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
 
           {mode === "draw" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><PenTool size={20} /></span><div><h2>Draw the floor plan manually</h2><p>Drag each room on the measured grid. You can rename and classify rooms on the next step.</p></div></div><ManualFloorPlan onUse={useDrawnPlan} /></div>}
         </section>
