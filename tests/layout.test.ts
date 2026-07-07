@@ -62,6 +62,14 @@ describe("sample layout", () => {
     expect(estimate.notes[0].severity).toBe("warning");
   });
 
+  it("keeps extreme crop aspect ratios bounded for 3D estimation", () => {
+    const width = 2; const height = 5000; const data = new Uint8ClampedArray(width * height * 4).fill(255);
+    const estimate = buildEstimatedLayoutFromCrop({ width, height, data, colorSpace: "srgb" } as ImageData, sampleLayout);
+    expect(estimate.rooms[0].dimensions.widthMeters).toBeLessThanOrEqual(10);
+    expect(estimate.rooms[0].dimensions.lengthMeters).toBeLessThanOrEqual(10);
+    expect(estimate.walls.length).toBeGreaterThanOrEqual(4);
+  });
+
   it("supports exact Chinese estate-name matching", () => {
     const examples = [
       ["\u592a\u53e4\u57ce", "https://hk.centanet.com/estate/%E5%A4%AA%E5%8F%A4%E5%9F%8E/3-OVDUURFSRJ"],

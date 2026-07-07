@@ -3,8 +3,11 @@ import type { PropertyLayout } from "@/lib/layout-schema";
 type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: number; score: number };
 
 export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLayout): PropertyLayout {
-  const columns = 80;
-  const rows = Math.max(40, Math.round(columns * image.height / image.width));
+  const maxGridSide = 96;
+  const minGridSide = 24;
+  const aspect = image.width / Math.max(1, image.height);
+  const columns = aspect >= 1 ? maxGridSide : Math.max(minGridSide, Math.round(maxGridSide * aspect));
+  const rows = aspect >= 1 ? Math.max(minGridSide, Math.round(maxGridSide / aspect)) : maxGridSide;
   const dark = Array.from({ length: rows }, () => Array(columns).fill(false));
 
   for (let gy = 0; gy < rows; gy++) {
