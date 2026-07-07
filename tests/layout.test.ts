@@ -5,6 +5,7 @@ import { buildManualLayout } from "../lib/manual-layout";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages } from "../lib/source-match";
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
 import { FURNISHING_CATALOG } from "../lib/furnishing-catalog";
+import { expandEstateQueries } from "../lib/estate-aliases";
 
 describe("sample layout", () => {
   it("is valid and contains the required MVP rooms", () => {
@@ -66,6 +67,12 @@ describe("sample layout", () => {
     }
     expect(estateMatchScore("黃埔花園", "黃埔新天地")).toBe(0);
     expect(estateMatchScore("美孚新村", "美孚新邨")).toBe(1);
+  });
+
+  it("expands Chinese estate names into English aliases for search", () => {
+    expect(expandEstateQueries("太古城")).toEqual(expect.arrayContaining(["Taikoo Shing", "Tai Koo Shing"]));
+    expect(expandEstateQueries("海怡半島")).toEqual(expect.arrayContaining(["South Horizons"]));
+    expect(expandEstateQueries("康城")).toEqual(expect.arrayContaining(["LOHAS Park"]));
   });
 
   it("uses positive real-world furnishing dimensions", () => {

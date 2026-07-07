@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { expandEstateQueries } from "@/lib/estate-aliases";
 import type { FloorPlanCandidate, PropertySearchRequest, PropertySearchResponse } from "@/lib/property-search";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
@@ -78,10 +79,15 @@ export async function POST(request: Request) {
     if (!body.estate?.trim() && !body.address?.trim()) return NextResponse.json({ error: "Estate or address is required." }, { status: 400 });
     if (!body.estate?.trim()) return NextResponse.json({ candidates: [], searchedSources: ["Centaline"], warnings: ["Automatic matching currently requires an estate/development name. Add one, or upload/draw the plan."], sourceCoverage: SOURCE_COVERAGE } satisfies PropertySearchResponse);
 
-    const chineseQuery = /[\u3400-\u9fff]/.test(body.estate);
-    const languages: Array<"en" | "zh" | "cn"> = chineseQuery ? ["zh", "cn"] : ["en"];
+    const estateQueries = expandEstateQueries(body.estate);
+    const chineseQuery = estateQueries.some((query) => /[\u3400-\u9fff]/.test(query));
+    const languages: Array<"en" | "zh" | "cn"> = chineseQuery ? ["zh", "cn", "en"] : ["en", "zh", "cn"];
     const urls = [...new Set((await Promise.all(languages.map(getEstateUrls))).flat())];
-    const ranked = urls.map((url) => ({ url, name: estateNameFromSourceUrl(url), score: estateMatchScore(body.estate, estateNameFromSourceUrl(url)) }))
+    const ranked = urls.map((url) => {
+      const name = estateNameFromSourceUrl(url);
+      const score = Math.max(...estateQueries.map((query) => estateMatchScore(query, name)));
+      return { url, name, score };
+    })
       .filter((item) => item.score >= (chineseQuery ? .72 : .55))
       .sort((a, b) => b.score - a.score || Number(b.url.includes("/3-")) - Number(a.url.includes("/3-")));
 

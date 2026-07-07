@@ -22,6 +22,7 @@ export function FloorPlanCropper({ src, onAnalyze, labels }: { src: string; onAn
   const [panStart, setPanStart] = useState<{ pointer: Point; offset: Point }>();
   const [selection, setSelection] = useState<Rect>();
   const [ready, setReady] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const draw = () => {
     const canvas = canvasRef.current; const image = imageRef.current;
@@ -36,8 +37,15 @@ export function FloorPlanCropper({ src, onAnalyze, labels }: { src: string; onAn
   };
 
   useEffect(() => {
+    imageRef.current = null;
+    setReady(false);
+    setSelection(undefined);
+    setOffset({ x: 0, y: 0 });
+    setStart(undefined);
+    setPanStart(undefined);
+    setAnalyzing(false);
     const image = new Image(); image.crossOrigin = "anonymous";
-    image.onload = () => { imageRef.current = image; setReady(true); setSelection(undefined); setOffset({ x: 0, y: 0 }); requestAnimationFrame(draw); };
+    image.onload = () => { imageRef.current = image; setReady(true); requestAnimationFrame(draw); };
     image.src = src;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
@@ -50,16 +58,25 @@ export function FloorPlanCropper({ src, onAnalyze, labels }: { src: string; onAn
   const changeZoom = (next: number) => { setZoom(next); setSelection(undefined); };
   const analyze = () => {
     const canvas = canvasRef.current; const image = imageRef.current; if (!canvas || !image || !selection) return;
+    setAnalyzing(true);
     const fit = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight) * zoom;
     const dx = (canvas.width - image.naturalWidth * fit) / 2 + offset.x; const dy = (canvas.height - image.naturalHeight * fit) / 2 + offset.y;
     const sx = Math.max(0, (selection.x - dx) / fit); const sy = Math.max(0, (selection.y - dy) / fit);
     const sw = Math.min(image.naturalWidth - sx, selection.width / fit); const sh = Math.min(image.naturalHeight - sy, selection.height / fit);
-    if (sw <= 0 || sh <= 0) return;
-    const output = document.createElement("canvas"); output.width = Math.max(1, Math.round(sw)); output.height = Math.max(1, Math.round(sh));
-    const context = output.getContext("2d"); if (!context) return;
-    context.drawImage(image, sx, sy, sw, sh, 0, 0, output.width, output.height);
-    onAnalyze(output.toDataURL("image/png"), context.getImageData(0, 0, output.width, output.height));
+    if (sw <= 0 || sh <= 0) { setAnalyzing(false); return; }
+    const maxPixels = 1_200_000;
+    const scale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, sw * sh)));
+    const output = document.createElement("canvas"); output.width = Math.max(1, Math.round(sw * scale)); output.height = Math.max(1, Math.round(sh * scale));
+    const context = output.getContext("2d"); if (!context) { setAnalyzing(false); return; }
+    window.setTimeout(() => {
+      try {
+        context.drawImage(image, sx, sy, sw, sh, 0, 0, output.width, output.height);
+        onAnalyze(output.toDataURL("image/png"), context.getImageData(0, 0, output.width, output.height));
+      } finally {
+        setAnalyzing(false);
+      }
+    }, 0);
   };
 
-  return <><div className="crop-tool"><div className="zoom-toolbar"><span><Crop size={15} /> {labels?.instruction ?? "Move the plan, then crop the unit area"}</span><div className="crop-mode-switch"><button className={tool === "pan" ? "active" : ""} onClick={() => setTool("pan")}><Hand size={15} /> {labels?.pan ?? "Pan"}</button><button className={tool === "crop" ? "active" : ""} onClick={() => setTool("crop")}><Crop size={15} /> {labels?.crop ?? "Crop"}</button></div><button onClick={() => changeZoom(Math.max(1, zoom - .25))} aria-label="Zoom out"><Minus size={16} /></button><strong>{Math.round(zoom * 100)}%</strong><button onClick={() => changeZoom(Math.min(3, zoom + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><canvas className={`${tool}-mode${panStart ? " dragging" : ""}`} ref={canvasRef} width={760} height={460} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const p = point(event); if (tool === "pan") setPanStart({ pointer: p, offset }); else { setStart(p); setSelection({ ...p, width: 0, height: 0 }); } }} onPointerMove={(event) => { const end = point(event); if (tool === "pan" && panStart) setOffset({ x: panStart.offset.x + end.x - panStart.pointer.x, y: panStart.offset.y + end.y - panStart.pointer.y }); else if (tool === "crop" && start) setSelection({ x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) }); }} onPointerUp={() => { setStart(undefined); setPanStart(undefined); }} onPointerCancel={() => { setStart(undefined); setPanStart(undefined); }} /></div><div className="crop-action-row"><button className="button primary" disabled={!selection || selection.width < 20 || selection.height < 20} onClick={analyze}><ScanLine size={17} /> {labels?.action ?? "Create estimated 3D from selected area"}</button></div></>;
+  return <><div className="crop-tool"><div className="zoom-toolbar"><span><Crop size={15} /> {ready ? labels?.instruction ?? "Move the plan, then crop the unit area" : "Loading floor plan..."}</span><div className="crop-mode-switch"><button className={tool === "pan" ? "active" : ""} onClick={() => setTool("pan")}><Hand size={15} /> {labels?.pan ?? "Pan"}</button><button className={tool === "crop" ? "active" : ""} onClick={() => setTool("crop")}><Crop size={15} /> {labels?.crop ?? "Crop"}</button></div><button onClick={() => changeZoom(Math.max(1, zoom - .25))} aria-label="Zoom out"><Minus size={16} /></button><strong>{Math.round(zoom * 100)}%</strong><button onClick={() => changeZoom(Math.min(3, zoom + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><canvas className={`${tool}-mode${panStart ? " dragging" : ""}`} ref={canvasRef} width={760} height={460} onPointerDown={(event) => { if (!ready || analyzing) return; event.currentTarget.setPointerCapture(event.pointerId); const p = point(event); if (tool === "pan") setPanStart({ pointer: p, offset }); else { setStart(p); setSelection({ ...p, width: 0, height: 0 }); } }} onPointerMove={(event) => { if (!ready || analyzing) return; const end = point(event); if (tool === "pan" && panStart) setOffset({ x: panStart.offset.x + end.x - panStart.pointer.x, y: panStart.offset.y + end.y - panStart.pointer.y }); else if (tool === "crop" && start) setSelection({ x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) }); }} onPointerUp={() => { setStart(undefined); setPanStart(undefined); }} onPointerCancel={() => { setStart(undefined); setPanStart(undefined); }} /></div><div className="crop-action-row"><button className="button primary" disabled={!ready || analyzing || !selection || selection.width < 20 || selection.height < 20} onClick={analyze}><ScanLine size={17} /> {analyzing ? "Creating 3D estimate..." : labels?.action ?? "Create estimated 3D from selected area"}</button></div></>;
 }

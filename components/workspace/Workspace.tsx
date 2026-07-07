@@ -194,6 +194,13 @@ export function Workspace() {
     setCandidates([]);
     setSearchWarnings([]);
     setPendingCandidate(undefined);
+    setPlanName(undefined);
+    setPlanPreviewUrl(undefined);
+    setReferencePlanUrl(undefined);
+    if (localPlanUrl.current) {
+      URL.revokeObjectURL(localPlanUrl.current);
+      localPlanUrl.current = undefined;
+    }
     try {
       const response = await fetch("/api/property-search", {
         method: "POST",
@@ -215,7 +222,7 @@ export function Workspace() {
   const confirmCandidate = (candidate: FloorPlanCandidate) => {
     setLayout((current) => ({ ...current, property: { ...current.property, sourceType: candidate.sourceType, sourceUrl: candidate.sourceUrl, confidence: candidate.confidence } }));
     setPlanName(candidate.title);
-    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(candidate.imageUrl)}`;
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(candidate.imageUrl)}&candidate=${encodeURIComponent(candidate.id)}`;
     setPlanPreviewUrl(proxyUrl);
     setReferencePlanUrl(proxyUrl);
     setPendingCandidate(undefined);
@@ -425,7 +432,7 @@ export function Workspace() {
             {pendingCandidate && <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm floor plan"><div className="confirm-dialog"><button className="dialog-close" aria-label="Close confirmation" onClick={() => setPendingCandidate(undefined)}><X size={18} /></button><p className="eyebrow">Confirm before 3D use</p><h2>Does this plan match your property?</h2><PlanZoomViewer src={pendingCandidate.imageUrl} alt={`${pendingCandidate.estateName} plan for confirmation`} /><div className="confirm-facts"><span><strong>Estate</strong>{pendingCandidate.estateName}</span><span><strong>Source</strong>{pendingCandidate.source} · secondary</span><span><strong>Matched</strong>{pendingCandidate.matchedFields.join(", ")}</span></div><p>Zoom in and check tower/block, flat, orientation and saleable area. Confirmation uses this image as a tracing reference; it does not make the source official.</p><div className="dialog-actions"><button className="button ghost" onClick={() => setPendingCandidate(undefined)}>No, choose another</button><button className="button primary" onClick={() => confirmCandidate(pendingCandidate)}><Check size={16} /> Yes, use this plan</button></div></div></div>}
           </div>}
 
-          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">PDF selected. Export the relevant page as an image for cropping, or draw on the blank grid below.</p>}{planPreviewUrl && <><FloorPlanCropper src={planPreviewUrl} onAnalyze={analyzeCrop} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
+          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">PDF selected. Export the relevant page as an image for cropping, or draw on the blank grid below.</p>}{planPreviewUrl && <><FloorPlanCropper key={`crop-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
 
           {mode === "draw" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><PenTool size={20} /></span><div><h2>Draw the floor plan manually</h2><p>Drag each room on the measured grid. You can rename and classify rooms on the next step.</p></div></div><ManualFloorPlan onUse={useDrawnPlan} /></div>}
         </section>

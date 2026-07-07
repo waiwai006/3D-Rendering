@@ -5,6 +5,7 @@ export function normalizeSourceText(value = "") {
     "臺": "台", "灣": "湾", "園": "园", "麗": "丽", "寶": "宝", "華": "华", "龍": "龙",
     "廣": "广", "樂": "乐", "馬": "马", "門": "门", "東": "东", "興": "兴", "薈": "荟",
     "瓏": "珑", "匯": "汇", "滙": "汇", "邨": "村", "峯": "峰", "號": "号", "樓": "楼",
+    "體": "体", "濱": "滨", "壹": "一", "貝": "贝", "藍": "蓝", "昇": "升", "御": "御",
   };
   return [...decoded.toLocaleLowerCase()].map((character) => chineseVariants[character] ?? character).join("")
     .replace(/\band\b/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -35,8 +36,10 @@ export function estateMatchScore(query: string, name: string) {
     if (compactQuery === compactName) return 1;
     if (compactName.startsWith(compactQuery) || compactQuery.startsWith(compactName)) return .84;
     if (compactQuery.length < 3 || compactName.length < 3) return 0;
-    const queryPairs = new Set([...compactQuery].slice(0, -1).map((character, index) => character + [...compactQuery][index + 1]));
-    const namePairs = new Set([...compactName].slice(0, -1).map((character, index) => character + [...compactName][index + 1]));
+    const queryCharacters = [...compactQuery];
+    const nameCharacters = [...compactName];
+    const queryPairs = new Set(queryCharacters.slice(0, -1).map((character, index) => character + queryCharacters[index + 1]));
+    const namePairs = new Set(nameCharacters.slice(0, -1).map((character, index) => character + nameCharacters[index + 1]));
     const overlap = [...queryPairs].filter((pair) => namePairs.has(pair)).length;
     const similarity = (2 * overlap) / Math.max(1, queryPairs.size + namePairs.size);
     return similarity >= .66 ? similarity * .78 : 0;
