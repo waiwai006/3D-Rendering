@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sampleLayout } from "../data/sample-layout";
 import { validateLayout } from "../lib/layout-schema";
 import { buildManualLayout } from "../lib/manual-layout";
-import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages } from "../lib/source-match";
+import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls } from "../lib/source-match";
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
 import { FURNISHING_CATALOG } from "../lib/furnishing-catalog";
 import { expandEstateQueries } from "../lib/estate-aliases";
@@ -43,6 +43,13 @@ describe("sample layout", () => {
     const html = 'thumbnail:"https:\\u002F\\u002Fhk.centanet.com\\u002Fimgresize\\u002Ffloorplan\\u002Fplan-a.jpg" thumbnail:"https:\\u002F\\u002Fhk.centanet.com\\u002Fimgresize\\u002Ffloorplan\\u002Fplan-a.jpg"';
     expect(extractCentalineFloorPlanImages(html)).toEqual(["https://hk.centanet.com/imgresize/floorplan/plan-a.jpg"]);
     expect(() => estateMatchScore("100% Court", "100% Court")).not.toThrow();
+  });
+
+  it("extracts listing detail and listing-level floor-plan images", () => {
+    const listingHtml = 'detailUrl:"https:\\u002F\\u002Fhk.centanet.com\\u002Ffindproperty\\u002Fen\\u002Fdetail\\u002FTaikoo-Shing_DAQ212?showgmap=0"';
+    expect(extractCentalineListingDetailUrls(listingHtml)).toEqual(["https://hk.centanet.com/findproperty/en/detail/Taikoo-Shing_DAQ212?showgmap=0"]);
+    const detailHtml = 'thumbnailUrl:"https:\\u002F\\u002Fhk.centanet.com\\u002Fimgresize\\u002Ffloorplan\\u002F201706\\u002Fplan.png" rawImage:"https:\\u002F\\u002Fhkfloorplan.centanet.com\\u002Fimg\\u002Fimg.aspx?dir=201706&name=plan.png"';
+    expect(extractCentalineFloorPlanImages(detailHtml)[0]).toBe("https://hk.centanet.com/imgresize/floorplan/201706/plan.png");
   });
 
   it("creates a clearly low-confidence layout from a cropped image", () => {

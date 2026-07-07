@@ -53,9 +53,18 @@ export function estateMatchScore(query: string, name: string) {
 
 export function extractCentalineFloorPlanImages(html: string) {
   const found = new Set<string>();
-  for (const match of html.matchAll(/thumbnail\s*:\s*"(https:[^"]*floorplan[^"]+)"/gi)) {
+  for (const match of html.matchAll(/(?:thumbnail|thumbnailUrl|rawImage)\s*:\s*"(https:[^"]*floorplan[^"]+)"/gi)) {
     const image = match[1].replace(/\\u002F/gi, "/").replace(/\\\//g, "/").replace(/\\\\/g, "/");
     if (/^https:\/\//i.test(image)) found.add(image);
+  }
+  return [...found].sort((a, b) => Number(b.includes("/imgresize/")) - Number(a.includes("/imgresize/")));
+}
+
+export function extractCentalineListingDetailUrls(html: string) {
+  const found = new Set<string>();
+  for (const match of html.matchAll(/https:\\u002F\\u002Fhk\.centanet\.com\\u002Ffindproperty\\u002F(?:en\\u002F)?detail\\u002F[^"',)}]+/gi)) {
+    const url = match[0].replace(/\\u002F/gi, "/").replace(/\\\//g, "/").replace(/\\\\/g, "/");
+    if (/^https:\/\/hk\.centanet\.com\/findproperty\/(?:en\/)?detail\//i.test(url)) found.add(url);
   }
   return [...found];
 }

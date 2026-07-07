@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { expandEstateQueries } from "@/lib/estate-aliases";
 import type { FloorPlanCandidate, PropertySearchRequest, PropertySearchResponse } from "@/lib/property-search";
-import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, normalizeSourceText } from "@/lib/source-match";
+import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
 
 export const runtime = "nodejs";
@@ -72,6 +72,42 @@ async function candidatesFromEstatePage(url: string, estateName: string, request
   }));
 }
 
+async function candidatesFromCentalineListings(searchQuery: string, estateName: string, request: PropertySearchRequest, baseScore: number) {
+  const searchUrl = `https://hk.centanet.com/findproperty/en/list/buy?keyword=${encodeURIComponent(searchQuery)}`;
+  const response = await fetch(searchUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; HKPropertyDesign/0.2; property planning)" },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) return [];
+  const html = await response.text();
+  const detailUrls = extractCentalineListingDetailUrls(html).slice(0, 5);
+  const batches = await Promise.all(detailUrls.map(async (detailUrl) => {
+    const detailResponse = await fetch(detailUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; HKPropertyDesign/0.2; property planning)" },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!detailResponse.ok) return [];
+    const detailHtml = await detailResponse.text();
+    const pageText = normalizeSourceText(detailHtml.replace(/<[^>]+>/g, " "));
+    const detailFields: Array<[string, string | undefined]> = [["tower", request.tower], ["block", request.block], ["floor", request.floor], ["flat", request.flat]];
+    const matchedFields = ["estate", ...detailFields.filter(([, value]) => value && pageText.includes(normalizeSourceText(value))).map(([key]) => key)];
+    const confidence = Math.min(.88, .62 + baseScore * .18 + Math.min(.08, (matchedFields.length - 1) * .02));
+    return extractCentalineFloorPlanImages(detailHtml).slice(0, 4).map((imageUrl, index): FloorPlanCandidate => ({
+      id: `centaline-listing-${Buffer.from(`${detailUrl}-${index}`).toString("base64url").slice(0, 18)}`,
+      estateName,
+      title: `${estateName} listing floor-plan candidate ${index + 1}`,
+      source: "Centaline",
+      sourceType: "secondary",
+      sourceUrl: detailUrl,
+      imageUrl,
+      confidence: Number(confidence.toFixed(2)),
+      matchedFields,
+      requiresVisualConfirmation: true,
+    }));
+  }));
+  return batches.flat();
+}
+
 export async function POST(request: Request) {
   const warnings: string[] = [];
   try {
@@ -100,10 +136,17 @@ export async function POST(request: Request) {
       if (!unique.some((entry) => normalizeSourceText(entry.name) === normalizeSourceText(item.name))) unique.push(item);
       if (unique.length === 3) break;
     }
-    const batches = await Promise.all(unique.map((item) => candidatesFromEstatePage(item.url, item.name, body, item.score).catch((error) => {
-      warnings.push(`${item.name}: ${error instanceof Error ? error.message : "candidate extraction failed"}`);
-      return [];
-    })));
+    const batches = await Promise.all(unique.map(async (item) => {
+      try {
+        const estateCandidates = await candidatesFromEstatePage(item.url, item.name, body, item.score).catch(() => []);
+        const listingSearchTerm = estateQueries.find((query) => !/[\u3400-\u9fff]/.test(query)) ?? item.name;
+        const listingCandidates = await candidatesFromCentalineListings(listingSearchTerm, item.name, body, item.score).catch(() => []);
+        return [...estateCandidates, ...listingCandidates];
+      } catch (error) {
+        warnings.push(`${item.name}: ${error instanceof Error ? error.message : "candidate extraction failed"}`);
+        return [];
+      }
+    }));
     const candidates = batches.flat().sort((a, b) => b.confidence - a.confidence).slice(0, 12);
     if (!candidates.length) warnings.push("No plan image was found in the accessible Centaline estate pages. Try another spelling, then upload or draw the plan.");
     warnings.push("Agency plans are secondary references. Confirm the tower, flat, orientation and dimensions visually before use.");
