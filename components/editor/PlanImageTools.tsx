@@ -93,7 +93,9 @@ export function FloorPlanCropper({ src, onAnalyze, onAnalyzeError, labels }: { s
     const canvas = canvasRef.current; const image = imageRef.current; if (!canvas || !image || !selection) return;
     setAnalyzing(true);
     const token = loadTokenRef.current;
+    const watchdog = window.setTimeout(() => setAnalyzing(false), 12000);
     window.requestAnimationFrame(() => window.setTimeout(() => {
+      let handedOff = false;
       try {
         if (loadTokenRef.current !== token) return;
         const fit = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight) * zoom;
@@ -101,16 +103,28 @@ export function FloorPlanCropper({ src, onAnalyze, onAnalyzeError, labels }: { s
         const sx = Math.max(0, (selection.x - dx) / fit); const sy = Math.max(0, (selection.y - dy) / fit);
         const sw = Math.min(image.naturalWidth - sx, selection.width / fit); const sh = Math.min(image.naturalHeight - sy, selection.height / fit);
         if (sw <= 0 || sh <= 0) throw new Error("Select an area inside the floor plan before creating the 3D estimate.");
-        const maxPixels = 700_000;
+        const maxPixels = 80_000;
         const scale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, sw * sh)));
         const output = document.createElement("canvas"); output.width = Math.max(1, Math.round(sw * scale)); output.height = Math.max(1, Math.round(sh * scale));
         const context = output.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("The browser could not prepare the selected area for analysis.");
         context.drawImage(image, sx, sy, sw, sh, 0, 0, output.width, output.height);
-        onAnalyze(output.toDataURL("image/png"), context.getImageData(0, 0, output.width, output.height));
+        const dataUrl = output.toDataURL("image/png");
+        const imageData = context.getImageData(0, 0, output.width, output.height);
+        handedOff = true;
+        setAnalyzing(false);
+        window.clearTimeout(watchdog);
+        window.setTimeout(() => {
+          try {
+            onAnalyze(dataUrl, imageData);
+          } catch (error) {
+            onAnalyzeError?.(error instanceof Error ? error.message : "The selected area could not be converted into a 3D estimate.");
+          }
+        }, 0);
       } catch (error) {
         onAnalyzeError?.(error instanceof Error ? error.message : "The selected area could not be converted into a 3D estimate.");
       } finally {
-        setAnalyzing(false);
+        window.clearTimeout(watchdog);
+        if (!handedOff) setAnalyzing(false);
       }
     }, 0));
   };

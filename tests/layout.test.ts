@@ -81,6 +81,9 @@ describe("sample layout", () => {
     expect(expandEstateQueries("\u592a\u53e4\u57ce")).toEqual(expect.arrayContaining(["Taikoo Shing", "Tai Koo Shing"]));
     expect(expandEstateQueries("\u6d77\u6021\u534a\u5cf6")).toEqual(expect.arrayContaining(["South Horizons"]));
     expect(expandEstateQueries("\u5eb7\u57ce")).toEqual(expect.arrayContaining(["LOHAS Park"]));
+    expect(expandEstateQueries("\u5357\u8c50\u65b0\u90a8")).toEqual(expect.arrayContaining(["Nan Fung Sun Chuen"]));
+    expect(expandEstateQueries("\u85cd\u7063\u534a\u5cf6")).toEqual(expect.arrayContaining(["Island Resort"]));
+    expect(expandEstateQueries("\u8c9d\u6c99\u7063")).toEqual(expect.arrayContaining(["Residence Bel-Air"]));
   });
 
   it("provides curated public Centaline fallbacks for common Chinese searches", () => {
