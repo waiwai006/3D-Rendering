@@ -5,7 +5,7 @@ import { Crop, Hand, Minus, Plus, ScanLine } from "lucide-react";
 
 export function PlanZoomViewer({ src, alt }: { src: string; alt: string }) {
   const [zoom, setZoom] = useState(1);
-  return <div className="plan-zoom"><div className="zoom-toolbar"><button onClick={() => setZoom((value) => Math.max(1, value - .25))} aria-label="Zoom out"><Minus size={16} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(4, value + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><div className="zoom-viewport"><img src={src} alt={alt} style={{ width: `${zoom * 100}%` }} referrerPolicy="no-referrer" /></div></div>;
+  return <div className="plan-zoom"><div className="zoom-toolbar"><button onClick={() => setZoom((value) => Math.max(.25, value - .25))} aria-label="Zoom out"><Minus size={16} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(4, value + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><div className="zoom-viewport"><img src={src} alt={alt} style={{ width: `${zoom * 100}%` }} referrerPolicy="no-referrer" /></div></div>;
 }
 
 type Point = { x: number; y: number };

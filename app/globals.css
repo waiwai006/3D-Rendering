@@ -124,6 +124,14 @@ input:focus, select:focus { border-color:var(--sage); box-shadow:0 0 0 3px rgba(
 .wall-tools span { color:var(--muted); font-size:12px; line-height:1.45; }
 .edge-buttons { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .wall-tools select { margin:0; }
+.style-agent-panel { margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:12px; background:#f8f7f1; }
+.style-agent-panel label { margin:0 0 10px; }
+.agent-card { margin-top:9px; padding:10px; border-radius:9px; background:white; border:1px solid var(--line); font-size:12px; line-height:1.45; }
+.agent-card strong { display:block; color:var(--sage-dark); margin-bottom:4px; }
+.agent-card p { margin:0 0 7px; color:var(--muted); }
+.agent-card a { color:var(--sage-dark); font-weight:800; }
+.agent-card ul { margin:6px 0 0; padding-left:18px; color:var(--muted); }
+.agent-card.worker { background:#eef2ec; }
 .assumption { margin-top:25px; padding:12px; display:flex; gap:9px; background:#f5eee4; color:#705b45; font-size:12px; line-height:1.45; border-radius:9px; }
 .mini-preview { min-height:500px; overflow:hidden; box-shadow:none; }
 .mini-preview canvas,.full-viewer canvas { display:block; }

@@ -55,6 +55,7 @@ export interface PropertyLayout {
   doors: LayoutDoor[];
   windows: LayoutWindow[];
   platforms?: LayoutPlatform[];
+  decorStyleId?: string;
   notes: { message: string; severity: "info" | "warning" | "error" }[];
   furnishings?: import("./furnishing-catalog").PlacedFurnishing[];
 }

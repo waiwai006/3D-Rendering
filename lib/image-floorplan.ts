@@ -68,6 +68,9 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   });
   const width = columns * scale;
   const length = rows * scale;
+  const area = width * length;
+  const inferredRoomType = area > 13 ? "living" : area > 7 ? "bedroom" : "other";
+  const inferredRoomName = inferredRoomType === "living" ? "Inferred living / dining area" : inferredRoomType === "bedroom" ? "Inferred bedroom area" : "Cropped plan area";
   if (!walls.length) walls.push(
     { id: "estimated-north", start: { x: 0, y: 0 }, end: { x: width, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
     { id: "estimated-east", start: { x: width, y: 0 }, end: { x: width, y: length }, heightMeters: 2.55, thicknessMeters: .1 },
@@ -106,8 +109,11 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     ...base,
     projectId: `image-estimate-${Date.now()}`,
     property: { ...base.property, sourceType: "manual", confidence: .32 },
-    rooms: [{ id: "cropped-plan", name: "Cropped plan area", type: "other", dimensions: { widthMeters: width, lengthMeters: length, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .3 }],
+    rooms: [{ id: "cropped-plan", name: inferredRoomName, type: inferredRoomType, dimensions: { widthMeters: width, lengthMeters: length, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .3 }],
     walls, doors, windows, platforms,
-    notes: [{ message: "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" }],
+    notes: [
+      { message: "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" },
+      { message: "Room label hint: if the cropped plan text shows Living/客廳/客厅, Bedroom/睡房/臥室/卧室, Kitchen/廚房/厨房 or Bath/浴室/廁所/厕所, rename and reclassify the room accordingly.", severity: "info" },
+    ],
   };
 }

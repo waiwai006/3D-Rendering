@@ -6,16 +6,19 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { LayoutWall, PropertyLayout } from "@/lib/layout-schema";
 import { catalogItem, type FurnishingCatalogItem, type PlacedFurnishing } from "@/lib/furnishing-catalog";
+import { decorStyleById } from "@/lib/decor-styles";
 
 const ROOM_COLORS = { living: "#dbcdb8", bedroom: "#d8d8ce", kitchen: "#c8d4ce", bathroom: "#b9cbd1", corridor: "#d6cec2", balcony: "#c4d8cf", storage: "#d1ccc4", other: "#d3d0ca" };
 
-function RoomFloor({ room, active, onSelect, onFloorPoint, onFloorDragStart, onFloorDragEnd }: { room: PropertyLayout["rooms"][number]; active: boolean; onSelect: () => void; onFloorPoint?: (x: number, z: number) => void; onFloorDragStart?: (x: number, z: number) => void; onFloorDragEnd?: (x: number, z: number) => void }) {
+function RoomFloor({ room, active, floorColor, onSelect, onFloorPoint, onFloorDragStart, onFloorDragEnd }: { room: PropertyLayout["rooms"][number]; active: boolean; floorColor?: string; onSelect: () => void; onFloorPoint?: (x: number, z: number) => void; onFloorDragStart?: (x: number, z: number) => void; onFloorDragEnd?: (x: number, z: number) => void }) {
   const { widthMeters: w, lengthMeters: l } = room.dimensions;
+  const pointerStart = useRef<{ x: number; z: number } | undefined>(undefined);
+  const suppressClick = useRef(false);
   return (
     <group position={[room.position.x + w / 2, room.position.z, room.position.y + l / 2]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .015, 0]} receiveShadow onPointerDown={(event) => { if (!onFloorDragStart) return; event.stopPropagation(); onSelect(); onFloorDragStart(event.point.x, event.point.z); }} onPointerUp={(event) => { if (!onFloorDragEnd) return; event.stopPropagation(); onFloorDragEnd(event.point.x, event.point.z); }} onClick={(event) => { event.stopPropagation(); onSelect(); if (!onFloorDragStart) onFloorPoint?.(event.point.x, event.point.z); }}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .015, 0]} receiveShadow onPointerDown={(event) => { if (!onFloorDragStart) return; event.stopPropagation(); onSelect(); pointerStart.current = { x: event.point.x, z: event.point.z }; suppressClick.current = false; onFloorDragStart(event.point.x, event.point.z); }} onPointerUp={(event) => { if (!onFloorDragEnd || !pointerStart.current) return; event.stopPropagation(); const distance = Math.hypot(event.point.x - pointerStart.current.x, event.point.z - pointerStart.current.z); if (distance > .25) { suppressClick.current = true; onFloorDragEnd(event.point.x, event.point.z); } pointerStart.current = undefined; }} onClick={(event) => { event.stopPropagation(); onSelect(); if (suppressClick.current) { suppressClick.current = false; return; } onFloorPoint?.(event.point.x, event.point.z); }}>
         <planeGeometry args={[w - .04, l - .04]} />
-        <meshStandardMaterial color={ROOM_COLORS[room.type]} emissive={active ? "#705b3e" : "#000000"} emissiveIntensity={active ? .11 : 0} />
+        <meshStandardMaterial color={floorColor ?? ROOM_COLORS[room.type]} emissive={active ? "#705b3e" : "#000000"} emissiveIntensity={active ? .11 : 0} />
       </mesh>
       <Html center position={[0, .08, 0]} distanceFactor={9} occlude={false} style={{ pointerEvents: "none" }}>
         <div className={`room-label ${active ? "active" : ""}`}>{room.name}</div>
@@ -48,7 +51,7 @@ function Furnishing({ furnishing, selected, onSelect }: { furnishing: PlacedFurn
 
 type Opening = { center: number; width: number; kind: "door" | "window"; height?: number; sill?: number };
 
-function WallPiece({ wall, startAt, length, height, y, selected, onSelect }: { wall: LayoutWall; startAt: number; length: number; height: number; y: number; selected?: boolean; onSelect?: () => void }) {
+function WallPiece({ wall, startAt, length, height, y, color, selected, onSelect }: { wall: LayoutWall; startAt: number; length: number; height: number; y: number; color?: string; selected?: boolean; onSelect?: () => void }) {
   if (length <= .01 || height <= .01) return null;
   const dx = wall.end.x - wall.start.x;
   const dz = wall.end.y - wall.start.y;
@@ -60,12 +63,12 @@ function WallPiece({ wall, startAt, length, height, y, selected, onSelect }: { w
   return (
     <mesh position={[cx, y, cz]} rotation={[0, -Math.atan2(uz, ux), 0]} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelect?.(); }}>
       <boxGeometry args={[length, height, wall.thicknessMeters]} />
-      <meshStandardMaterial color={selected ? "#c98758" : "#f3f0e9"} roughness={.82} emissive={selected ? "#6d341c" : "#000000"} emissiveIntensity={selected ? .16 : 0} />
+      <meshStandardMaterial color={selected ? "#c98758" : color ?? "#f3f0e9"} roughness={.82} emissive={selected ? "#6d341c" : "#000000"} emissiveIntensity={selected ? .16 : 0} />
     </mesh>
   );
 }
 
-function Wall({ wall, doors, windows, selected, onSelect }: { wall: LayoutWall; doors: PropertyLayout["doors"]; windows: PropertyLayout["windows"]; selected?: boolean; onSelect?: () => void }) {
+function Wall({ wall, doors, windows, color, selected, onSelect }: { wall: LayoutWall; doors: PropertyLayout["doors"]; windows: PropertyLayout["windows"]; color?: string; selected?: boolean; onSelect?: () => void }) {
   const length = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
   const openings: Opening[] = [
     ...doors.filter((d) => d.wallId === wall.id).map((d) => ({ center: d.positionRatioOnWall * length, width: d.widthMeters, kind: "door" as const })),
@@ -76,18 +79,18 @@ function Wall({ wall, doors, windows, selected, onSelect }: { wall: LayoutWall; 
   openings.forEach((opening, index) => {
     const left = Math.max(0, opening.center - opening.width / 2);
     const right = Math.min(length, opening.center + opening.width / 2);
-    pieces.push(<WallPiece key={`side-${index}`} wall={wall} startAt={cursor} length={left - cursor} height={wall.heightMeters} y={wall.heightMeters / 2} selected={selected} onSelect={onSelect} />);
+    pieces.push(<WallPiece key={`side-${index}`} wall={wall} startAt={cursor} length={left - cursor} height={wall.heightMeters} y={wall.heightMeters / 2} color={color} selected={selected} onSelect={onSelect} />);
     if (opening.kind === "door") {
-      pieces.push(<WallPiece key={`top-${index}`} wall={wall} startAt={left} length={right - left} height={Math.max(.1, wall.heightMeters - 2.08)} y={2.08 + Math.max(.1, wall.heightMeters - 2.08) / 2} selected={selected} onSelect={onSelect} />);
+      pieces.push(<WallPiece key={`top-${index}`} wall={wall} startAt={left} length={right - left} height={Math.max(.1, wall.heightMeters - 2.08)} y={2.08 + Math.max(.1, wall.heightMeters - 2.08) / 2} color={color} selected={selected} onSelect={onSelect} />);
     } else {
       const sill = opening.sill ?? .9;
       const openingHeight = opening.height ?? 1;
-      pieces.push(<WallPiece key={`sill-${index}`} wall={wall} startAt={left} length={right - left} height={sill} y={sill / 2} selected={selected} onSelect={onSelect} />);
-      pieces.push(<WallPiece key={`lintel-${index}`} wall={wall} startAt={left} length={right - left} height={wall.heightMeters - sill - openingHeight} y={sill + openingHeight + (wall.heightMeters - sill - openingHeight) / 2} selected={selected} onSelect={onSelect} />);
+      pieces.push(<WallPiece key={`sill-${index}`} wall={wall} startAt={left} length={right - left} height={sill} y={sill / 2} color={color} selected={selected} onSelect={onSelect} />);
+      pieces.push(<WallPiece key={`lintel-${index}`} wall={wall} startAt={left} length={right - left} height={wall.heightMeters - sill - openingHeight} y={sill + openingHeight + (wall.heightMeters - sill - openingHeight) / 2} color={color} selected={selected} onSelect={onSelect} />);
     }
     cursor = right;
   });
-  pieces.push(<WallPiece key="tail" wall={wall} startAt={cursor} length={length - cursor} height={wall.heightMeters} y={wall.heightMeters / 2} selected={selected} onSelect={onSelect} />);
+  pieces.push(<WallPiece key="tail" wall={wall} startAt={cursor} length={length - cursor} height={wall.heightMeters} y={wall.heightMeters / 2} color={color} selected={selected} onSelect={onSelect} />);
   const marker = (opening: Opening, index: number) => {
     const dx = wall.end.x - wall.start.x; const dz = wall.end.y - wall.start.y; const total = Math.hypot(dx, dz); const ux = dx / total; const uz = dz / total;
     const cx = wall.start.x + ux * opening.center; const cz = wall.start.y + uz * opening.center;
@@ -98,10 +101,10 @@ function Wall({ wall, doors, windows, selected, onSelect }: { wall: LayoutWall; 
   return <>{pieces}{openings.map(marker)}</>;
 }
 
-function Platform({ platform }: { platform: NonNullable<PropertyLayout["platforms"]>[number] }) {
+function Platform({ platform, color }: { platform: NonNullable<PropertyLayout["platforms"]>[number]; color?: string }) {
   return <mesh position={[platform.position.x + platform.dimensions.widthMeters / 2, platform.dimensions.heightMeters / 2, platform.position.y + platform.dimensions.lengthMeters / 2]} receiveShadow castShadow>
     <boxGeometry args={[platform.dimensions.widthMeters, platform.dimensions.heightMeters, platform.dimensions.lengthMeters]} />
-    <meshStandardMaterial color="#c9b79b" roughness={.82} />
+    <meshStandardMaterial color={color ?? "#c9b79b"} roughness={.82} />
   </mesh>;
 }
 
@@ -120,6 +123,7 @@ function FocusCamera({ room, offset }: { room?: PropertyLayout["rooms"][number];
 export function PropertyViewer({ layout, selectedRoomId, onSelectRoom, furnishings = [], selectedFurnishingId, onSelectFurnishing, onFloorPoint, onWallDraw, selectedWallId, onSelectWall }: { layout: PropertyLayout; selectedRoomId?: string; onSelectRoom: (id: string) => void; furnishings?: PlacedFurnishing[]; selectedFurnishingId?: string; onSelectFurnishing?: (id: string) => void; onFloorPoint?: (roomId: string, x: number, y: number) => void; onWallDraw?: (roomId: string, start: { x: number; y: number }, end: { x: number; y: number }) => void; selectedWallId?: string; onSelectWall?: (id: string) => void }) {
   const selectedRoom = useMemo(() => layout.rooms.find((r) => r.id === selectedRoomId), [layout.rooms, selectedRoomId]);
   const wallDragRef = useRef<{ roomId: string; x: number; y: number } | undefined>(undefined);
+  const style = decorStyleById(layout.decorStyleId);
   const offset = useMemo(() => {
     const points = layout.walls.flatMap((wall) => [wall.start, wall.end]);
     if (!points.length) return { x: 0, z: 0 };
@@ -131,14 +135,14 @@ export function PropertyViewer({ layout, selectedRoomId, onSelectRoom, furnishin
   }, [layout.walls]);
   return (
     <Canvas shadows dpr={[1, 1.6]} camera={{ position: [11, 9, 11], fov: 43 }} gl={{ antialias: true }}>
-      <color attach="background" args={["#ebe8e0"]} />
+      <color attach="background" args={[style.palette.background]} />
       <ambientLight intensity={1.35} />
       <directionalLight position={[5, 10, 4]} intensity={1.6} castShadow shadow-mapSize={[1024, 1024]} />
       {/* Layout x/y become Three.js x/z; Three.js y is vertical. */}
       <group position={[offset.x, 0, offset.z]}>
-        {layout.rooms.map((room) => <RoomFloor key={room.id} room={room} active={room.id === selectedRoomId} onSelect={() => onSelectRoom(room.id)} onFloorPoint={onFloorPoint ? (x, z) => onFloorPoint(room.id, x - offset.x, z - offset.z) : undefined} onFloorDragStart={onWallDraw ? (x, z) => { wallDragRef.current = { roomId: room.id, x: x - offset.x, y: z - offset.z }; } : undefined} onFloorDragEnd={onWallDraw ? (x, z) => { const start = wallDragRef.current; const end = { x: x - offset.x, y: z - offset.z }; if (start && start.roomId === room.id) onWallDraw(room.id, { x: start.x, y: start.y }, end); wallDragRef.current = undefined; } : undefined} />)}
-        {(layout.platforms ?? []).map((platform) => <Platform key={platform.id} platform={platform} />)}
-        {layout.walls.map((wall) => <Wall key={wall.id} wall={wall} doors={layout.doors} windows={layout.windows} selected={wall.id === selectedWallId} onSelect={() => onSelectWall?.(wall.id)} />)}
+        {layout.rooms.map((room) => <RoomFloor key={room.id} room={room} active={room.id === selectedRoomId} floorColor={style.palette.floor} onSelect={() => onSelectRoom(room.id)} onFloorPoint={onFloorPoint ? (x, z) => onFloorPoint(room.id, x - offset.x, z - offset.z) : undefined} onFloorDragStart={onWallDraw ? (x, z) => { wallDragRef.current = { roomId: room.id, x: x - offset.x, y: z - offset.z }; } : undefined} onFloorDragEnd={onWallDraw ? (x, z) => { const start = wallDragRef.current; const end = { x: x - offset.x, y: z - offset.z }; if (start && start.roomId === room.id && Math.hypot(end.x - start.x, end.y - start.y) > .25) onWallDraw(room.id, { x: start.x, y: start.y }, end); wallDragRef.current = undefined; } : undefined} />)}
+        {(layout.platforms ?? []).map((platform) => <Platform key={platform.id} platform={platform} color={style.palette.platform} />)}
+        {layout.walls.map((wall) => <Wall key={wall.id} wall={wall} doors={layout.doors} windows={layout.windows} color={style.palette.wall} selected={wall.id === selectedWallId} onSelect={() => onSelectWall?.(wall.id)} />)}
         {furnishings.map((furnishing) => <Furnishing key={furnishing.id} furnishing={furnishing} selected={furnishing.id === selectedFurnishingId} onSelect={() => onSelectFurnishing?.(furnishing.id)} />)}
       </group>
       <gridHelper args={[30, 30, "#c3beb5", "#d8d4cc"]} position={[0, -.02, 0]} />
