@@ -74,6 +74,8 @@ export function Workspace() {
   const [pendingCatalogId, setPendingCatalogId] = useState<string>();
   const [selectedFurnishingId, setSelectedFurnishingId] = useState<string>();
   const [selectedWallId, setSelectedWallId] = useState<string>();
+  const [movingFurnishingId, setMovingFurnishingId] = useState<string>();
+  const [movingWallId, setMovingWallId] = useState<string>();
   const [wallStart, setWallStart] = useState<{ roomId: string; x: number; y: number }>();
   const [wallMode, setWallMode] = useState(false);
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
@@ -212,6 +214,15 @@ export function Workspace() {
       } : wall),
     }));
     setSelectedWallId(wallId);
+  };
+
+  const moveWallTo = (wallId: string, x: number, y: number) => {
+    const wall = layout.walls.find((candidate) => candidate.id === wallId);
+    if (!wall) return;
+    const center = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+    moveWall(wallId, { x: x - center.x, y: y - center.y });
+    setMovingWallId(undefined);
+    setNotice("Wall moved. You can also drag it directly in the 3D view.");
   };
 
   const rotateWall = (deltaDegrees: number) => {
@@ -477,6 +488,20 @@ export function Workspace() {
   };
 
   const placeFurnishing = (roomId: string, x: number, y: number) => {
+    if (movingFurnishingId) {
+      setLayout((current) => ({
+        ...current,
+        furnishings: (current.furnishings ?? []).map((item) => item.id === movingFurnishingId ? { ...item, roomId, position: { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) } } : item),
+      }));
+      setSelectedFurnishingId(movingFurnishingId);
+      setMovingFurnishingId(undefined);
+      setNotice("Item moved. You can also drag it directly in the 3D view.");
+      return;
+    }
+    if (movingWallId) {
+      moveWallTo(movingWallId, x, y);
+      return;
+    }
     if (!pendingCatalogId) return;
     const id = `item-${Date.now()}`;
     setLayout((current) => {
@@ -494,7 +519,7 @@ export function Workspace() {
     });
     setSelectedFurnishingId(id);
     setPendingCatalogId(undefined);
-    setNotice("Item placed to scale. Select it in the 3D view to rotate or remove it.");
+    setNotice("Item placed to scale. Select it in the 3D view to move, rotate or remove it.");
   };
 
   const moveFurnishing = (id: string, delta: { x: number; y: number }) => {
@@ -561,6 +586,24 @@ export function Workspace() {
     setNotice("Styled starter set removed. Manually placed furniture remains.");
   };
 
+  const startMoveFurnishing = () => {
+    if (!selectedFurnishingId) return;
+    setMovingFurnishingId(selectedFurnishingId);
+    setMovingWallId(undefined);
+    setPendingCatalogId(undefined);
+    setWallMode(false);
+    setNotice("Move mode on. Click the desired room-floor location, or simply drag the item.");
+  };
+
+  const startMoveWall = () => {
+    if (!selectedWallId) return;
+    setMovingWallId(selectedWallId);
+    setMovingFurnishingId(undefined);
+    setPendingCatalogId(undefined);
+    setWallMode(false);
+    setNotice("Move mode on. Click the destination for the wall centre, or simply drag the wall.");
+  };
+
   return (
     <main className="app-shell" id="top">
       <I18nBridge language={language} />
@@ -600,7 +643,7 @@ export function Workspace() {
             {pendingCandidate && <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm floor plan"><div className="confirm-dialog"><button className="dialog-close" aria-label="Close confirmation" onClick={() => setPendingCandidate(undefined)}><X size={18} /></button><p className="eyebrow">Confirm before 3D use</p><h2>Does this plan match your property?</h2><PlanZoomViewer src={pendingCandidate.imageUrl} alt={`${pendingCandidate.estateName} plan for confirmation`} /><div className="confirm-facts"><span><strong>Estate</strong>{pendingCandidate.estateName}</span><span><strong>Source</strong>{pendingCandidate.source} · secondary</span><span><strong>Matched</strong>{pendingCandidate.matchedFields.join(", ")}</span></div><p>Zoom in and check tower/block, flat and orientation. Confirmation uses this image as a tracing reference; it does not make the source official.</p><div className="dialog-actions"><button className="button ghost" onClick={() => setPendingCandidate(undefined)}>No, choose another</button><button className="button primary" onClick={() => confirmCandidate(pendingCandidate)}><Check size={16} /> Yes, use this plan</button></div></div></div>}
           </div>}
 
-          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">Loading selected floor plan...</p>}{planPreviewUrl && remotePlanPreview && <><PlanZoomViewer src={planPreviewUrl} alt={`${planName ?? "Selected"} public floor plan`} /><p className="upload-warning">This public fallback is loaded directly from the agency source. If automatic cropping is blocked by browser security, trace it below or upload a saved copy of the image.</p><div className="tool-divider"><span>trace rooms manually</span></div></>}{planPreviewUrl && !remotePlanPreview && <><FloorPlanCropper key={`crop-${cropperRevision}-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} onAnalyzeError={setNotice} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${cropperRevision}-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
+          {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">Loading selected floor plan...</p>}{planPreviewUrl && <><PlanZoomViewer src={planPreviewUrl} alt={`${planName ?? "Selected"} floor plan`} />{remotePlanPreview && <p className="upload-warning">This public fallback is loaded directly from the agency source. Pan/Crop is available below; if the browser blocks automatic image analysis, upload a saved copy or trace it manually.</p>}<FloorPlanCropper key={`crop-${cropperRevision}-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} onAnalyzeError={setNotice} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${cropperRevision}-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
 
           {mode === "draw" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><PenTool size={20} /></span><div><h2>Draw the floor plan manually</h2><p>Drag each room on the measured grid. You can rename and classify rooms on the next step.</p></div></div><ManualFloorPlan onUse={useDrawnPlan} /></div>}
         </section>
@@ -623,8 +666,8 @@ export function Workspace() {
         <section className="viewer-page">
           <div className="viewer-toolbar"><div><p className="eyebrow">Interactive model</p><h1>{layout.property.name || "Untitled property"}</h1><p>{layout.property.address || "Address not added"}</p></div><div className="viewer-actions"><button className="button ghost" onClick={() => setStep("layout")}><ArrowLeft size={16} /> Back</button><button className="button ghost" onClick={() => setStep("layout")}>Edit layout</button><button className="button primary" onClick={save}><Save size={16} /> Save</button></div></div>
           <div className="design-studio">
-            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it. Drag selected furniture or walls directly in the 3D view to move them.</p></div><div className="style-agent-panel"><label>Decor style<select value={selectedDecorStyle.id} onChange={(event) => setDecorStyle(event.target.value)}>{DECOR_STYLES.map((style) => <option key={style.id} value={style.id}>{style.name} · {style.chineseName}</option>)}</select></label><button className="button ghost small wide" onClick={applyStyledStarterSet}><PackagePlus size={15} /> Place styled starter set</button><button className="button ghost small wide danger" onClick={removeStarterSet}><Trash2 size={15} /> Remove starter set</button><p className="small-note">Adds common prototype items such as sofa, TV, storage, bed, wardrobe, fridge, microwave and washer where matching rooms exist.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{ROOM_CATEGORY_LABELS[item.roomCategory]} · {item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{pendingCatalogId && <div className="placement-prompt"><strong>{catalogItem(pendingCatalogId)?.name}</strong><span>Click the desired position on a room floor.</span></div>}<div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall. Selected walls can also be dragged directly.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">Click once to start, click again to finish, or drag across any room floor.</p>}<div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
-            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={(id) => { setSelectedWallId(undefined); setSelectedFurnishingId(id); }} onFurnishingMove={moveFurnishing} onFloorPoint={wallMode ? handleWallPoint : placeFurnishing} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={(id) => { setSelectedFurnishingId(undefined); setSelectedWallId(id); }} onWallMove={moveWall} /><div className="viewer-hint">{wallMode ? (wallStart ? "Wall start set · Click another point or drag to finish" : "Click once to start, click again to finish · Or drag on the floor") : "Drag to orbit · Scroll to zoom · Click an item or wall to select · Drag selected items/walls to move"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div>{selectedFurnishingId && <div className="selection-toolbar"><span>Furniture</span><button className="button ghost small" onClick={() => rotateFurnishing(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateFurnishing(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={14} /> Remove</button></div>}{selectedWallId && !selectedFurnishingId && <div className="selection-toolbar"><span>Wall / opening</span><button className="button ghost small" onClick={() => rotateWall(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateWall(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={() => removeWall(selectedWallId)}><Trash2 size={14} /> Remove</button></div>}</div>
+            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it. Use Move then click a destination, or drag selected furniture/walls directly in the 3D view.</p></div><div className="style-agent-panel"><label>Decor style<select value={selectedDecorStyle.id} onChange={(event) => setDecorStyle(event.target.value)}>{DECOR_STYLES.map((style) => <option key={style.id} value={style.id}>{style.name} · {style.chineseName}</option>)}</select></label><button className="button ghost small wide" onClick={applyStyledStarterSet}><PackagePlus size={15} /> Place styled starter set</button><button className="button ghost small wide danger" onClick={removeStarterSet}><Trash2 size={15} /> Remove starter set</button><p className="small-note">Adds common prototype items such as sofa, TV, storage, bed, wardrobe, fridge, microwave and washer where matching rooms exist.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setMovingFurnishingId(undefined); setMovingWallId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{ROOM_CATEGORY_LABELS[item.roomCategory]} · {item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{pendingCatalogId && <div className="placement-prompt"><strong>{catalogItem(pendingCatalogId)?.name}</strong><span>Click the desired position on a room floor.</span></div>}{movingFurnishingId && <div className="placement-prompt"><strong>Move selected item</strong><span>Click the new room-floor position.</span></div>}{movingWallId && <div className="placement-prompt"><strong>Move selected wall</strong><span>Click the destination for the wall centre.</span></div>}<div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall. Selected walls can also be dragged directly.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setMovingWallId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">Click once to start, click again to finish, or drag across any room floor.</p>}<div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
+            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={(id) => { setSelectedWallId(undefined); setMovingWallId(undefined); setSelectedFurnishingId(id); }} onFurnishingMove={moveFurnishing} onFloorPoint={wallMode ? handleWallPoint : placeFurnishing} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={(id) => { setSelectedFurnishingId(undefined); setMovingFurnishingId(undefined); setSelectedWallId(id); }} onWallMove={moveWall} /><div className="viewer-hint">{wallMode ? (wallStart ? "Wall start set · Click another point or drag to finish" : "Click once to start, click again to finish · Or drag on the floor") : movingFurnishingId || movingWallId ? "Move mode · Click the destination on a room floor" : "Drag to orbit · Scroll to zoom · Click an item or wall to select · Drag selected items/walls to move"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div>{selectedFurnishingId && <div className="selection-toolbar"><span>Furniture</span><button className={`button ghost small ${movingFurnishingId ? "active" : ""}`} onClick={startMoveFurnishing}>Move</button><button className="button ghost small" onClick={() => rotateFurnishing(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateFurnishing(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={14} /> Remove</button></div>}{selectedWallId && !selectedFurnishingId && <div className="selection-toolbar"><span>Wall / opening</span><button className={`button ghost small ${movingWallId ? "active" : ""}`} onClick={startMoveWall}>Move</button><button className="button ghost small" onClick={() => rotateWall(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateWall(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={() => removeWall(selectedWallId)}><Trash2 size={14} /> Remove</button></div>}</div>
           </div>
         </section>
       )}
