@@ -15,9 +15,9 @@ const CURATED_CENTALINE_PLANS: CuratedFloorPlan[] = [
     aliases: ["Taikoo Shing", "Tai Koo Shing", "\u592a\u53e4\u57ce"],
     sourceUrl: "https://hk.centanet.com/findproperty/en/detail/TAIKOO-SHING_DAZ418?showgmap=0",
     images: [
-      "https://hk.centanet.com/imgresize/floorplan/201706/19cpal00079407HDZOXIQS.png",
-      "https://hk.centanet.com/imgresize/floorplan/newFP/202103/399_2000_Centaline.png",
-      "https://hk.centanet.com/imgresize/floorplan/newUP/202102/4975_2000_Centaline.png",
+      "/curated-floorplans/taikoo-shing-1.png",
+      "/curated-floorplans/taikoo-shing-2.png",
+      "/curated-floorplans/taikoo-shing-3.png",
     ],
   },
   {
@@ -25,9 +25,9 @@ const CURATED_CENTALINE_PLANS: CuratedFloorPlan[] = [
     aliases: ["South Horizons", "\u6d77\u6021\u534a\u5cf6", "\u6d77\u6021\u534a\u5c9b"],
     sourceUrl: "https://hk.centanet.com/findproperty/en/detail/South-Horizons_TIP072?showgmap=0",
     images: [
-      "https://hk.centanet.com/imgresize/floorplan/newUP/202105/5970_2000_Centaline.png",
-      "https://hk.centanet.com/imgresize/floorplan/2000cen/FPBA/SPSDYWBPWAPKFPS",
-      "https://hk.centanet.com/imgresize/floorplan/2000cen/FPBA/SPSDYWBPWAPKSPS",
+      "/curated-floorplans/south-horizons-1.png",
+      "/curated-floorplans/south-horizons-2.png",
+      "/curated-floorplans/south-horizons-3.png",
     ],
   },
   {
@@ -35,9 +35,9 @@ const CURATED_CENTALINE_PLANS: CuratedFloorPlan[] = [
     aliases: ["LOHAS Park", "\u65e5\u51fa\u5eb7\u57ce", "\u5eb7\u57ce"],
     sourceUrl: "https://hk.centanet.com/findproperty/en/detail/LOHAS-PARK_SZC509?showgmap=0",
     images: [
-      "https://hk.centanet.com/imgresize/floorplan/201405/26cpal00052417GNEBGSPX.jpg",
-      "https://hk.centanet.com/imgresize/floorplan/200803/04cpal00019830BEPOJDBK.jpg",
-      "https://hk.centanet.com/imgresize/floorplan/200803/04cpal00019832NKLRXVKA.jpg",
+      "/curated-floorplans/lohas-park-1.jpg",
+      "/curated-floorplans/lohas-park-2.jpg",
+      "/curated-floorplans/lohas-park-3.jpg",
     ],
   },
 ];
