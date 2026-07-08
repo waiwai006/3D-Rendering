@@ -27,6 +27,7 @@ export interface LayoutDoor {
   widthMeters: number;
   positionRatioOnWall: number;
   opensTo: string[];
+  swing?: { hinge: "start" | "end"; direction: 1 | -1 };
 }
 
 export interface LayoutWindow {

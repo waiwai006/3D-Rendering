@@ -1,6 +1,45 @@
 import type { PropertyLayout } from "@/lib/layout-schema";
 
 type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: number; score: number };
+type DetectedDoorSymbol = { ratio: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
+
+function detectDoorSymbol(image: ImageData): DetectedDoorSymbol | undefined {
+  const zones = [
+    { key: "top-left", x0: 0, y0: 0, x1: .32, y1: .32, ratio: .18, swing: { hinge: "start" as const, direction: 1 as const } },
+    { key: "top-right", x0: .68, y0: 0, x1: 1, y1: .32, ratio: .82, swing: { hinge: "end" as const, direction: -1 as const } },
+    { key: "bottom-left", x0: 0, y0: .68, x1: .32, y1: 1, ratio: .18, swing: { hinge: "start" as const, direction: -1 as const } },
+    { key: "bottom-right", x0: .68, y0: .68, x1: 1, y1: 1, ratio: .82, swing: { hinge: "end" as const, direction: 1 as const } },
+  ];
+  const scores = zones.map((zone) => {
+    let darkPixels = 0;
+    let curvedBandPixels = 0;
+    let total = 0;
+    const x0 = Math.floor(image.width * zone.x0);
+    const x1 = Math.floor(image.width * zone.x1);
+    const y0 = Math.floor(image.height * zone.y0);
+    const y1 = Math.floor(image.height * zone.y1);
+    const cx = zone.x0 < .5 ? x0 : x1;
+    const cy = zone.y0 < .5 ? y0 : y1;
+    const minRadius = Math.min(image.width, image.height) * .055;
+    const maxRadius = Math.min(image.width, image.height) * .24;
+    for (let y = y0; y < y1; y += 2) {
+      for (let x = x0; x < x1; x += 2) {
+        const index = (y * image.width + x) * 4;
+        const luminance = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+        if (image.data[index + 3] > 80 && luminance < 150) {
+          darkPixels++;
+          const radius = Math.hypot(x - cx, y - cy);
+          if (radius >= minRadius && radius <= maxRadius) curvedBandPixels++;
+        }
+        total++;
+      }
+    }
+    return { ...zone, score: curvedBandPixels * 2 + darkPixels * .2, density: darkPixels / Math.max(1, total) };
+  }).sort((a, b) => b.score - a.score);
+  const best = scores[0];
+  if (!best || best.score < 8 || best.density < .008) return undefined;
+  return { ratio: best.ratio, swing: best.swing, confidence: Math.min(.85, best.score / 80) };
+}
 
 export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLayout): PropertyLayout {
   const maxGridSide = 48;
@@ -90,13 +129,15 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     positionRatioOnWall: index === 0 ? .32 : index === 1 ? .68 : .5,
     sillHeightMeters: .9,
   }));
+  const detectedDoorSymbol = detectDoorSymbol(image);
   const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
   const doors = doorWall ? [{
     id: "estimated-entry-door",
     wallId: doorWall.id,
     widthMeters: .82,
-    positionRatioOnWall: .5,
+    positionRatioOnWall: detectedDoorSymbol?.ratio ?? .5,
     opensTo: ["cropped-plan"],
+    swing: detectedDoorSymbol?.swing ?? { hinge: "start" as const, direction: 1 as const },
   }] : [];
   const platforms = width > 2.4 && length > 2.4 ? [{
     id: "estimated-platform-1",
@@ -112,7 +153,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     rooms: [{ id: "cropped-plan", name: inferredRoomName, type: inferredRoomType, dimensions: { widthMeters: width, lengthMeters: length, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .3 }],
     walls, doors, windows, platforms,
     notes: [
-      { message: "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" },
+      { message: detectedDoorSymbol ? "Estimated from cropped image using line detection. A hinged-door swing mark was detected and used for the entry door direction; verify visually." : "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" },
       { message: "Room label hint: if the cropped plan text shows Living/客廳/客厅, Bedroom/睡房/臥室/卧室, Kitchen/廚房/厨房 or Bath/浴室/廁所/厕所, rename and reclassify the room accordingly.", severity: "info" },
     ],
   };
