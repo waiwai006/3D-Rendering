@@ -5,7 +5,7 @@ import { Crop, Hand, Minus, Plus, ScanLine } from "lucide-react";
 
 export function PlanZoomViewer({ src, alt }: { src: string; alt: string }) {
   const [zoom, setZoom] = useState(1);
-  return <div className="plan-zoom"><div className="zoom-toolbar"><button onClick={() => setZoom((value) => Math.max(.25, value - .25))} aria-label="Zoom out"><Minus size={16} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(4, value + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><div className="zoom-viewport"><img src={src} alt={alt} style={{ width: `${zoom * 100}%` }} referrerPolicy="no-referrer" /></div></div>;
+  return <div className="plan-zoom"><div className="zoom-toolbar"><button onClick={() => setZoom((value) => Math.max(.25, value - .25))} aria-label="Zoom out"><Minus size={16} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(6, value + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><div className="zoom-viewport"><img src={src} alt={alt} style={{ width: `${zoom * 100}%`, imageRendering: "auto" }} referrerPolicy="no-referrer" /></div></div>;
 }
 
 type Point = { x: number; y: number };
@@ -103,13 +103,23 @@ export function FloorPlanCropper({ src, onAnalyze, onAnalyzeError, labels }: { s
         const sx = Math.max(0, (selection.x - dx) / fit); const sy = Math.max(0, (selection.y - dy) / fit);
         const sw = Math.min(image.naturalWidth - sx, selection.width / fit); const sh = Math.min(image.naturalHeight - sy, selection.height / fit);
         if (sw <= 0 || sh <= 0) throw new Error("Select an area inside the floor plan before creating the 3D estimate.");
-        const maxPixels = 20_000;
-        const scale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, sw * sh)));
-        const output = document.createElement("canvas"); output.width = Math.max(1, Math.round(sw * scale)); output.height = Math.max(1, Math.round(sh * scale));
-        const context = output.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("The browser could not prepare the selected area for analysis.");
-        context.drawImage(image, sx, sy, sw, sh, 0, 0, output.width, output.height);
-        const dataUrl = output.toDataURL("image/png");
-        const imageData = context.getImageData(0, 0, output.width, output.height);
+        const previewMaxPixels = 1_800_000;
+        const previewScale = Math.min(1, Math.sqrt(previewMaxPixels / Math.max(1, sw * sh)));
+        const previewOutput = document.createElement("canvas");
+        previewOutput.width = Math.max(1, Math.round(sw * previewScale));
+        previewOutput.height = Math.max(1, Math.round(sh * previewScale));
+        const previewContext = previewOutput.getContext("2d");
+        if (!previewContext) throw new Error("The browser could not prepare the selected area preview.");
+        previewContext.drawImage(image, sx, sy, sw, sh, 0, 0, previewOutput.width, previewOutput.height);
+        const dataUrl = previewOutput.toDataURL("image/png");
+        const analysisMaxPixels = 20_000;
+        const analysisScale = Math.min(1, Math.sqrt(analysisMaxPixels / Math.max(1, sw * sh)));
+        const analysisOutput = document.createElement("canvas");
+        analysisOutput.width = Math.max(1, Math.round(sw * analysisScale));
+        analysisOutput.height = Math.max(1, Math.round(sh * analysisScale));
+        const context = analysisOutput.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("The browser could not prepare the selected area for analysis.");
+        context.drawImage(image, sx, sy, sw, sh, 0, 0, analysisOutput.width, analysisOutput.height);
+        const imageData = context.getImageData(0, 0, analysisOutput.width, analysisOutput.height);
         handedOff = true;
         setAnalyzing(false);
         window.clearTimeout(watchdog);

@@ -2,6 +2,7 @@ import type { PropertyLayout } from "@/lib/layout-schema";
 
 type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: number; score: number };
 type DetectedDoorSymbol = { xRatio: number; yRatio: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
+type DetectedWindowSymbol = { xRatio: number; yRatio: number; orientation: "h" | "v"; confidence: number };
 
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
   const grid = 5;
@@ -74,6 +75,77 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     positionRatioOnWall: Number(best.ratio.toFixed(2)),
     opensTo: ["cropped-plan"],
     swing: symbol.swing,
+  };
+}
+
+function detectWindowSymbols(image: ImageData): DetectedWindowSymbol[] {
+  const results: DetectedWindowSymbol[] = [];
+  const step = Math.max(8, Math.round(Math.min(image.width, image.height) * .03));
+  const minDark = 120;
+  const maxLight = 200;
+  const luminanceAt = (x: number, y: number) => {
+    const clampedX = Math.max(0, Math.min(image.width - 1, x));
+    const clampedY = Math.max(0, Math.min(image.height - 1, y));
+    const index = (clampedY * image.width + clampedX) * 4;
+    return image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+  };
+  const checkRect = (cx: number, cy: number, halfW: number, halfH: number, orientation: "h" | "v") => {
+    let borderDark = 0;
+    let borderTotal = 0;
+    let centerLight = 0;
+    let centerTotal = 0;
+    for (let y = -halfH; y <= halfH; y += 2) {
+      for (let x = -halfW; x <= halfW; x += 2) {
+        const lum = luminanceAt(cx + x, cy + y);
+        const onBorder = Math.abs(x) >= halfW - 2 || Math.abs(y) >= halfH - 2;
+        if (onBorder) {
+          borderTotal++;
+          if (lum < minDark) borderDark++;
+        } else {
+          centerTotal++;
+          if (lum > maxLight) centerLight++;
+        }
+      }
+    }
+    const borderRatio = borderDark / Math.max(1, borderTotal);
+    const centerRatio = centerLight / Math.max(1, centerTotal);
+    if (borderRatio > .52 && centerRatio > .48) {
+      results.push({ xRatio: cx / image.width, yRatio: cy / image.height, orientation, confidence: Number(((borderRatio + centerRatio) / 2).toFixed(2)) });
+    }
+  };
+  for (let cy = step; cy < image.height - step; cy += step) {
+    for (let cx = step; cx < image.width - step; cx += step) {
+      checkRect(cx, cy, Math.round(step * 1.8), Math.max(3, Math.round(step * .35)), "h");
+      checkRect(cx, cy, Math.max(3, Math.round(step * .35)), Math.round(step * 1.8), "v");
+    }
+  }
+  return results.filter((candidate, index, list) => index === list.findIndex((other) => Math.hypot(other.xRatio - candidate.xRatio, other.yRatio - candidate.yRatio) < .08 && other.orientation === candidate.orientation)).slice(0, 6);
+}
+
+function nearestWallWindow(symbol: DetectedWindowSymbol, walls: PropertyLayout["walls"], width: number, length: number, index: number) {
+  const x = symbol.xRatio * width;
+  const y = symbol.yRatio * length;
+  const scored = walls.map((wall) => {
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const wallLength = Math.max(.001, Math.hypot(dx, dy));
+    const projection = ((x - wall.start.x) * dx + (y - wall.start.y) * dy) / (wallLength * wallLength);
+    const ratio = Math.min(.9, Math.max(.1, projection));
+    const px = wall.start.x + dx * ratio;
+    const py = wall.start.y + dy * ratio;
+    const wallOrientation = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+    const orientationPenalty = wallOrientation === symbol.orientation ? 0 : .7;
+    return { wall, ratio, distance: Math.hypot(x - px, y - py) + orientationPenalty, wallLength };
+  }).filter((candidate) => candidate.wallLength > .9).sort((a, b) => a.distance - b.distance);
+  const best = scored[0];
+  if (!best) return undefined;
+  return {
+    id: `estimated-window-detected-${index + 1}`,
+    wallId: best.wall.id,
+    widthMeters: Number(Math.min(1.8, Math.max(.7, best.wallLength * .22)).toFixed(2)),
+    heightMeters: 1.05,
+    positionRatioOnWall: Number(best.ratio.toFixed(2)),
+    sillHeightMeters: .9,
   };
 }
 
@@ -165,6 +237,11 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     positionRatioOnWall: index === 0 ? .32 : index === 1 ? .68 : .5,
     sillHeightMeters: .9,
   }));
+  const detectedWindowSymbols = detectWindowSymbols(image);
+  const inferredWindows = detectedWindowSymbols
+    .map((symbol, index) => nearestWallWindow(symbol, walls, width, length, index))
+    .filter((window): window is NonNullable<typeof window> => Boolean(window));
+  const mergedWindows = [...inferredWindows, ...windows].filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .16));
   const detectedDoorSymbols = detectDoorSymbols(image);
   const inferredDoors = detectedDoorSymbols
     .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index))
@@ -191,9 +268,9 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     projectId: `image-estimate-${Date.now()}`,
     property: { ...base.property, sourceType: "manual", confidence: .32 },
     rooms: [{ id: "cropped-plan", name: inferredRoomName, type: inferredRoomType, dimensions: { widthMeters: width, lengthMeters: length, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .3 }],
-    walls, doors, windows, platforms,
+    walls, doors, windows: mergedWindows, platforms,
     notes: [
-      { message: detectedDoorSymbols.length ? `Estimated from cropped image using line detection. ${detectedDoorSymbols.length} hinged-door swing mark${detectedDoorSymbols.length === 1 ? "" : "s"} detected and matched to nearby walls; verify visually.` : "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" },
+      { message: detectedDoorSymbols.length || detectedWindowSymbols.length ? `Estimated from cropped image using line detection. ${detectedDoorSymbols.length} door swing mark${detectedDoorSymbols.length === 1 ? "" : "s"} and ${detectedWindowSymbols.length} window symbol${detectedWindowSymbols.length === 1 ? "" : "s"} were matched to nearby walls; verify visually.` : "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" },
       { message: "Room label hint: if the cropped plan text shows Living/客廳/客厅, Bedroom/睡房/臥室/卧室, Kitchen/廚房/厨房 or Bath/浴室/廁所/厕所, rename and reclassify the room accordingly.", severity: "info" },
     ],
   };
