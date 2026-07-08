@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import packageInfo from "../package.json";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,14 +9,15 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const version = (process.env.NEXT_PUBLIC_APP_VERSION || "local").slice(0, 7);
+  const [major = "0", minor = "1"] = packageInfo.version.split(".");
+  const version = `${major}.${minor}`;
 
   return (
     <html lang="en">
       <body>
         {children}
         <div className="version-badge" title={`HK Property Design version ${version}`}>
-          v {version}
+          v{version}
         </div>
       </body>
     </html>

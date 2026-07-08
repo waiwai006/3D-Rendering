@@ -41,7 +41,6 @@ jobs:
         env:
           NEXT_PUBLIC_STATIC_EXPORT: "true"
           NEXT_PUBLIC_BASE_PATH: "/3D-Rendering"
-          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
 
       - name: Add Pages marker
         run: touch out/.nojekyll
