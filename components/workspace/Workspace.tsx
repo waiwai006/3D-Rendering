@@ -11,6 +11,7 @@ import { buildManualLayout, type DrawnRoom } from "@/lib/manual-layout";
 import { buildEstimatedLayoutFromCrop } from "@/lib/image-floorplan";
 import { FURNISHING_CATALOG, catalogItem, type FurnishingRoomCategory } from "@/lib/furnishing-catalog";
 import { DECOR_STYLES, decorStyleById } from "@/lib/decor-styles";
+import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
 import type { FloorPlanCandidate, PropertySearchResponse, SourceCoverage } from "@/lib/property-search";
 import { isPropertyLayout, ROOM_LABELS, validateLayout, type LayoutWall, type PropertyLayout, type RoomType } from "@/lib/layout-schema";
 
@@ -21,6 +22,12 @@ type AccountUser = { name?: string; email?: string; picture?: string };
 const STORAGE_KEY = "hk-property-design-active-project-v3";
 const PROJECT_INDEX_KEY = "hk-property-design-project-index-v1";
 const SQFT_PER_SQM = 10.7639;
+const STATIC_EXPORT = process.env.NEXT_PUBLIC_STATIC_EXPORT === "true";
+const STATIC_SOURCE_COVERAGE: SourceCoverage[] = [
+  { name: "Curated Centaline fallback", url: "https://hk.centanet.com/findproperty/en/list/buy", status: "searched", note: "Static GitHub Pages mode can show bundled public fallback matches for common estates." },
+  { name: "Upload / draw", url: "#top", status: "manual", note: "Full 3D editing, cropping, local save/load and design styling run in this browser." },
+  { name: "Live crawler / Auth0 / cloud save", url: "https://hkpropertydesign.netlify.app", status: "limited", note: "Requires a server host such as Netlify; kept as backup when credits/token access are available." },
+];
 
 type SavedProjectSummary = { id: string; name: string; planName?: string; updatedAt: string };
 const ROOM_CATEGORY_LABELS: Record<FurnishingRoomCategory, string> = { living: "Living room", bedroom: "Bedroom", kitchen: "Kitchen", bathroom: "Bathroom / laundry", work: "Study / work", storage: "Storage" };
@@ -102,6 +109,11 @@ export function Workspace() {
   useEffect(() => () => { if (localPlanUrl.current) URL.revokeObjectURL(localPlanUrl.current); }, []);
 
   useEffect(() => {
+    if (STATIC_EXPORT) {
+      setAuthConfigured(false);
+      setAccountUser(null);
+      return;
+    }
     let active = true;
     fetch("/api/session").then((response) => response.json()).then(async (session: { configured: boolean; user: AccountUser | null }) => {
       if (!active) return;
@@ -256,6 +268,19 @@ export function Workspace() {
     if (localPlanUrl.current) {
       URL.revokeObjectURL(localPlanUrl.current);
       localPlanUrl.current = undefined;
+    }
+    if (STATIC_EXPORT) {
+      const fallbackCandidates = curatedFloorPlanCandidates({ estate: layout.property.name, address: layout.property.address, ...layout.unit });
+      setCandidates(fallbackCandidates);
+      setSourceCoverage(STATIC_SOURCE_COVERAGE);
+      setSearchWarnings(fallbackCandidates.length ? [
+        "GitHub Pages is static, so live agency crawling is unavailable here. Bundled public fallback matches are shown for supported estates.",
+        "If no candidate is exact, upload or draw the plan and continue to 3D.",
+      ] : [
+        "GitHub Pages is static, so live public-source crawling is unavailable here. Try Taikoo Shing, South Horizons or LOHAS Park, or upload/draw the plan.",
+      ]);
+      setSearchState("done");
+      return;
     }
     try {
       const response = await fetch("/api/property-search", {
