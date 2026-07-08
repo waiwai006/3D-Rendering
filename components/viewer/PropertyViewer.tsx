@@ -64,7 +64,8 @@ function Furnishing({ furnishing, selected, styleId, onSelect, onDragMove }: { f
   const item = catalogItem(furnishing.catalogId);
   const dragStart = useRef<{ x: number; z: number } | undefined>(undefined);
   if (!item) return null;
-  return <group position={[furnishing.position.x, 0, furnishing.position.y]} rotation={[0, THREE.MathUtils.degToRad(furnishing.rotationDegrees), 0]} onPointerDown={(event) => { event.stopPropagation(); onSelect?.(); dragStart.current = { x: event.point.x, z: event.point.z }; }} onPointerUp={(event) => { event.stopPropagation(); const start = dragStart.current; dragStart.current = undefined; if (!start) return; const delta = { x: event.point.x - start.x, y: event.point.z - start.z }; if (Math.hypot(delta.x, delta.y) > .08) onDragMove?.(furnishing.id, delta); }} onClick={(event) => { event.stopPropagation(); onSelect?.(); }}><FurnitureModel item={item} selected={selected} styleId={styleId} /></group>;
+  const mountHeight = item.shape === "aircon" ? 1.85 : 0;
+  return <group position={[furnishing.position.x, mountHeight, furnishing.position.y]} rotation={[0, THREE.MathUtils.degToRad(furnishing.rotationDegrees), 0]} onPointerDown={(event) => { event.stopPropagation(); onSelect?.(); dragStart.current = { x: event.point.x, z: event.point.z }; }} onPointerUp={(event) => { event.stopPropagation(); const start = dragStart.current; dragStart.current = undefined; if (!start) return; const delta = { x: event.point.x - start.x, y: event.point.z - start.z }; if (Math.hypot(delta.x, delta.y) > .08) onDragMove?.(furnishing.id, delta); }} onClick={(event) => { event.stopPropagation(); onSelect?.(); }}><FurnitureModel item={item} selected={selected} styleId={styleId} /></group>;
 }
 
 type Opening = { center: number; width: number; kind: "door" | "window"; height?: number; sill?: number; swing?: { hinge: "start" | "end"; direction: 1 | -1 } };
