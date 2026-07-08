@@ -1,8 +1,6 @@
-name: Deploy to Netlify
+name: Manual Deploy Static Site to Netlify
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -23,23 +21,27 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Test
-        run: npm test
+        run: npm test -- --exclude '.deploy-upload/**'
 
-      - name: Deploy production site
+      - name: Disable server-only files for static Netlify upload
+        run: rm -rf app/api middleware.ts
+
+      - name: Build static site in GitHub Actions
+        run: npm run build
+        env:
+          NEXT_PUBLIC_STATIC_EXPORT: "true"
+          NEXT_PUBLIC_BASE_PATH: ""
+          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+
+      - name: Deploy prebuilt folder to Netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
-          AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
-          AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
-          AUTH0_SECRET: ${{ secrets.AUTH0_SECRET }}
-          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
-          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
-        run: npx --yes netlify-cli@26 deploy --build --prod
+        run: npx --yes netlify-cli@26 deploy --dir=out --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
