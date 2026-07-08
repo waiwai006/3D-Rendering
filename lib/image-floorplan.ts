@@ -4,53 +4,97 @@ type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: numb
 type DetectedDoorSymbol = { xRatio: number; yRatio: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
 type DetectedWindowSymbol = { xRatio: number; yRatio: number; orientation: "h" | "v"; confidence: number };
 
+function createImageProbe(image: ImageData) {
+  const luminanceAt = (x: number, y: number) => {
+    const clampedX = Math.max(0, Math.min(image.width - 1, Math.round(x)));
+    const clampedY = Math.max(0, Math.min(image.height - 1, Math.round(y)));
+    const index = (clampedY * image.width + clampedX) * 4;
+    return image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+  };
+  const isDark = (x: number, y: number, threshold = 145) => luminanceAt(x, y) < threshold;
+  return { luminanceAt, isDark };
+}
+
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
-  const grid = 5;
-  const cells = Array.from({ length: grid * grid }, (_, index) => {
-    const gx = index % grid;
-    const gy = Math.floor(index / grid);
-    const pad = .04;
-    return { x0: Math.max(0, gx / grid - pad), y0: Math.max(0, gy / grid - pad), x1: Math.min(1, (gx + 1) / grid + pad), y1: Math.min(1, (gy + 1) / grid + pad) };
-  });
-  const candidates = cells.flatMap((cell, index) => [
-    { key: `${index}-top-left`, ...cell, anchorX: cell.x0, anchorY: cell.y0, swing: { hinge: "start" as const, direction: 1 as const } },
-    { key: `${index}-top-right`, ...cell, anchorX: cell.x1, anchorY: cell.y0, swing: { hinge: "end" as const, direction: -1 as const } },
-    { key: `${index}-bottom-left`, ...cell, anchorX: cell.x0, anchorY: cell.y1, swing: { hinge: "start" as const, direction: -1 as const } },
-    { key: `${index}-bottom-right`, ...cell, anchorX: cell.x1, anchorY: cell.y1, swing: { hinge: "end" as const, direction: 1 as const } },
-  ]);
-  const scored = candidates.map((zone) => {
-    let darkPixels = 0;
-    let curvedBandPixels = 0;
+  const { isDark, luminanceAt } = createImageProbe(image);
+  const minSide = Math.min(image.width, image.height);
+  const step = Math.max(3, Math.round(minSide * .012));
+  const minRadius = Math.max(8, Math.round(minSide * .045));
+  const maxRadius = Math.max(minRadius + 4, Math.round(minSide * .11));
+  const margin = maxRadius + 4;
+  const configs = [
+    { sx: 1, sy: 1, swing: { hinge: "start" as const, direction: 1 as const } },
+    { sx: -1, sy: 1, swing: { hinge: "end" as const, direction: -1 as const } },
+    { sx: 1, sy: -1, swing: { hinge: "start" as const, direction: -1 as const } },
+    { sx: -1, sy: -1, swing: { hinge: "end" as const, direction: 1 as const } },
+  ];
+  const candidates: Array<{ x: number; y: number; confidence: number; swing: DetectedDoorSymbol["swing"] }> = [];
+
+  const sampleLineRatio = (x: number, y: number, dx: number, dy: number, length: number) => {
+    let dark = 0;
     let total = 0;
-    const x0 = Math.floor(image.width * zone.x0);
-    const x1 = Math.floor(image.width * zone.x1);
-    const y0 = Math.floor(image.height * zone.y0);
-    const y1 = Math.floor(image.height * zone.y1);
-    const cx = Math.floor(image.width * zone.anchorX);
-    const cy = Math.floor(image.height * zone.anchorY);
-    const minRadius = Math.min(image.width, image.height) * .055;
-    const maxRadius = Math.min(image.width, image.height) * .18;
-    for (let y = y0; y < y1; y += 3) {
-      for (let x = x0; x < x1; x += 3) {
-        const index = (y * image.width + x) * 4;
-        const luminance = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
-        if (image.data[index + 3] > 80 && luminance < 150) {
-          darkPixels++;
-          const radius = Math.hypot(x - cx, y - cy);
-          if (radius >= minRadius && radius <= maxRadius) curvedBandPixels++;
+    for (let distance = 0; distance <= length; distance += 2) {
+      if (isDark(x + dx * distance, y + dy * distance, 140)) dark++;
+      total++;
+    }
+    return dark / Math.max(1, total);
+  };
+
+  for (let y = margin; y < image.height - margin; y += step) {
+    for (let x = margin; x < image.width - margin; x += step) {
+      if (!isDark(x, y, 115)) continue;
+      for (const config of configs) {
+        const frameHorizontal = sampleLineRatio(x, y, config.sx, 0, Math.round(maxRadius * .55));
+        const frameVertical = sampleLineRatio(x, y, 0, config.sy, Math.round(maxRadius * .55));
+        if (frameHorizontal < .55 || frameVertical < .55) continue;
+
+        let bestRadius = 0;
+        let bestArcRatio = 0;
+        for (let radius = minRadius; radius <= maxRadius; radius += 2) {
+          let arcDark = 0;
+          let arcTotal = 0;
+          let interiorLight = 0;
+          let interiorTotal = 0;
+          for (let sample = 0; sample <= 10; sample++) {
+            const angle = sample / 10 * Math.PI / 2;
+            const px = x + config.sx * Math.cos(angle) * radius;
+            const py = y + config.sy * Math.sin(angle) * radius;
+            if (isDark(px, py, 145)) arcDark++;
+            arcTotal++;
+
+            const innerRadius = radius * .62;
+            const ix = x + config.sx * Math.cos(angle) * innerRadius;
+            const iy = y + config.sy * Math.sin(angle) * innerRadius;
+            if (luminanceAt(ix, iy) > 165) interiorLight++;
+            interiorTotal++;
+          }
+          const arcRatio = arcDark / Math.max(1, arcTotal);
+          const interiorRatio = interiorLight / Math.max(1, interiorTotal);
+          if (arcRatio > bestArcRatio && interiorRatio > .55) {
+            bestArcRatio = arcRatio;
+            bestRadius = radius;
+          }
         }
-        total++;
+
+        if (bestRadius === 0 || bestArcRatio < .6) continue;
+
+        const outsideLight = luminanceAt(x - config.sx * bestRadius * .22, y - config.sy * bestRadius * .22);
+        const insideLight = luminanceAt(x + config.sx * bestRadius * .55, y + config.sy * bestRadius * .55);
+        if (insideLight <= outsideLight) continue;
+
+        const confidence = Number(Math.min(.95, (bestArcRatio * .55 + frameHorizontal * .2 + frameVertical * .2 + Math.min(1, insideLight / 255) * .05)).toFixed(2));
+        candidates.push({ x, y, confidence, swing: config.swing });
       }
     }
-    return { ...zone, score: curvedBandPixels * 2.4 + darkPixels * .12, density: darkPixels / Math.max(1, total) };
-  }).filter((candidate) => candidate.score >= 7 && candidate.density >= .006).sort((a, b) => b.score - a.score);
-  const chosen: typeof scored = [];
-  for (const candidate of scored) {
-    const duplicate = chosen.some((other) => Math.hypot(candidate.anchorX - other.anchorX, candidate.anchorY - other.anchorY) < .17);
-    if (!duplicate) chosen.push(candidate);
-    if (chosen.length >= 6) break;
   }
-  return chosen.map((candidate) => ({ xRatio: candidate.anchorX, yRatio: candidate.anchorY, swing: candidate.swing, confidence: Math.min(.85, candidate.score / 80) }));
+
+  const chosen: typeof candidates = [];
+  for (const candidate of candidates.sort((a, b) => b.confidence - a.confidence)) {
+    const duplicate = chosen.some((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) < minRadius * .7);
+    if (!duplicate) chosen.push(candidate);
+    if (chosen.length >= 8) break;
+  }
+  return chosen.map((candidate) => ({ xRatio: Number((candidate.x / image.width).toFixed(3)), yRatio: Number((candidate.y / image.height).toFixed(3)), swing: candidate.swing, confidence: candidate.confidence }));
 }
 
 function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["walls"], width: number, length: number, index: number) {
@@ -67,11 +111,11 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     return { wall, ratio, distance: Math.hypot(x - px, y - py), wallLength };
   }).filter((candidate) => candidate.wallLength > .85).sort((a, b) => a.distance - b.distance);
   const best = scored[0];
-  if (!best) return undefined;
+  if (!best || best.distance > Math.max(.55, Math.min(width, length) * .09)) return undefined;
   return {
     id: `estimated-door-${index + 1}`,
     wallId: best.wall.id,
-    widthMeters: Number(Math.min(.92, Math.max(.72, best.wallLength * .16)).toFixed(2)),
+    widthMeters: Number(Math.min(.92, Math.max(.72, best.wallLength * .14)).toFixed(2)),
     positionRatioOnWall: Number(best.ratio.toFixed(2)),
     opensTo: ["cropped-plan"],
     swing: symbol.swing,
@@ -83,12 +127,7 @@ function detectWindowSymbols(image: ImageData): DetectedWindowSymbol[] {
   const step = Math.max(8, Math.round(Math.min(image.width, image.height) * .03));
   const minDark = 120;
   const maxLight = 200;
-  const luminanceAt = (x: number, y: number) => {
-    const clampedX = Math.max(0, Math.min(image.width - 1, x));
-    const clampedY = Math.max(0, Math.min(image.height - 1, y));
-    const index = (clampedY * image.width + clampedX) * 4;
-    return image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
-  };
+  const { luminanceAt } = createImageProbe(image);
   const checkRect = (cx: number, cy: number, halfW: number, halfH: number, orientation: "h" | "v") => {
     let borderDark = 0;
     let borderTotal = 0;
@@ -138,11 +177,11 @@ function nearestWallWindow(symbol: DetectedWindowSymbol, walls: PropertyLayout["
     return { wall, ratio, distance: Math.hypot(x - px, y - py) + orientationPenalty, wallLength };
   }).filter((candidate) => candidate.wallLength > .9).sort((a, b) => a.distance - b.distance);
   const best = scored[0];
-  if (!best) return undefined;
+  if (!best || best.distance > Math.max(.55, Math.min(width, length) * .09)) return undefined;
   return {
     id: `estimated-window-detected-${index + 1}`,
     wallId: best.wall.id,
-    widthMeters: Number(Math.min(1.8, Math.max(.7, best.wallLength * .22)).toFixed(2)),
+    widthMeters: Number(Math.min(1.5, Math.max(.65, best.wallLength * .18)).toFixed(2)),
     heightMeters: 1.05,
     positionRatioOnWall: Number(best.ratio.toFixed(2)),
     sillHeightMeters: .9,
@@ -229,24 +268,25 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     .map((wall) => ({ wall, length: wallLength(wall) }))
     .filter(({ length }) => length > Math.min(width, length) * .35)
     .sort((a, b) => b.length - a.length);
-  const windows = outerWalls.slice(0, 3).map(({ wall, length }, index) => ({
+  const fallbackWindows = outerWalls.slice(0, 1).map(({ wall, length }, index) => ({
     id: `estimated-window-${index + 1}`,
     wallId: wall.id,
-    widthMeters: Number(Math.min(1.8, Math.max(.8, length * .28)).toFixed(2)),
+    widthMeters: Number(Math.min(1.2, Math.max(.7, length * .2)).toFixed(2)),
     heightMeters: 1.05,
-    positionRatioOnWall: index === 0 ? .32 : index === 1 ? .68 : .5,
+    positionRatioOnWall: .5,
     sillHeightMeters: .9,
   }));
   const detectedWindowSymbols = detectWindowSymbols(image);
   const inferredWindows = detectedWindowSymbols
     .map((symbol, index) => nearestWallWindow(symbol, walls, width, length, index))
     .filter((window): window is NonNullable<typeof window> => Boolean(window));
-  const mergedWindows = [...inferredWindows, ...windows].filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .16));
+  const mergedWindows = (inferredWindows.length ? inferredWindows : fallbackWindows)
+    .filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .14));
   const detectedDoorSymbols = detectDoorSymbols(image);
   const inferredDoors = detectedDoorSymbols
     .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index))
     .filter((door): door is NonNullable<typeof door> => Boolean(door));
-  const dedupedDoors = inferredDoors.filter((door, index, list) => index === list.findIndex((other) => other.wallId === door.wallId && Math.abs(other.positionRatioOnWall - door.positionRatioOnWall) < .18));
+  const dedupedDoors = inferredDoors.filter((door, index, list) => index === list.findIndex((other) => other.wallId === door.wallId && Math.abs(other.positionRatioOnWall - door.positionRatioOnWall) < .12));
   const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
   const doors = dedupedDoors.length ? dedupedDoors : doorWall ? [{
     id: "estimated-entry-door",
