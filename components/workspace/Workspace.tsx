@@ -38,6 +38,7 @@ const ROOM_CATEGORY_LABELS: Record<FurnishingRoomCategory, Record<Language, stri
 };
 
 type SavedProjectSummary = { id: string; name: string; planName?: string; updatedAt: string };
+type PersistedProject = { layout?: unknown; planName?: string; projectName?: string; referencePlanUrl?: string };
 
 function cloneSample(): PropertyLayout {
   return JSON.parse(JSON.stringify(sampleLayout)) as PropertyLayout;
@@ -58,6 +59,18 @@ function projectStorageKey(id: string) {
 
 function projectDisplayName(layout: PropertyLayout, planName?: string) {
   return layout.property.name || planName || `Floor plan ${new Date().toLocaleDateString()}`;
+}
+
+async function persistReferencePlan(referencePlanUrl?: string) {
+  if (!referencePlanUrl) return undefined;
+  if (!referencePlanUrl.startsWith("blob:")) return referencePlanUrl;
+  const blob = await fetch(referencePlanUrl).then((response) => response.blob());
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 export function Workspace() {
@@ -91,7 +104,12 @@ export function Workspace() {
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [authConfigured, setAuthConfigured] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
-  const localPlanUrl = useRef<string | undefined>(undefined);
+  const activeProjectForStorage = async (nextLayout: PropertyLayout, nextPlanName?: string, nextProjectName?: string, nextReferencePlanUrl?: string): Promise<PersistedProject> => ({
+    layout: nextLayout,
+    planName: nextPlanName,
+    projectName: nextProjectName ?? projectDisplayName(nextLayout, nextPlanName),
+    referencePlanUrl: await persistReferencePlan(nextReferencePlanUrl),
+  });
 
   useEffect(() => {
     try {
@@ -101,11 +119,19 @@ export function Workspace() {
       if (Array.isArray(index)) setSavedProjects(index);
       const saved = localStorage.getItem(STORAGE_KEY);
       if (!saved) return;
-      const parsed: unknown = JSON.parse(saved);
-      if (isPropertyLayout(parsed) && validateLayout(parsed).length === 0) {
-        setLayout(parsed);
-        setSelectedRoomId(parsed.rooms[0]?.id ?? "");
-        setProjectName(projectDisplayName(parsed));
+      const parsed = JSON.parse(saved) as PersistedProject | PropertyLayout;
+      const restored = isPropertyLayout(parsed)
+        ? { layout: parsed, planName: undefined, projectName: projectDisplayName(parsed), referencePlanUrl: undefined }
+        : parsed;
+      if (restored?.layout && isPropertyLayout(restored.layout) && validateLayout(restored.layout).length === 0) {
+        setLayout(restored.layout);
+        setSelectedRoomId(restored.layout.rooms[0]?.id ?? "");
+        setPlanName(restored.planName);
+        setProjectName(restored.projectName ?? projectDisplayName(restored.layout, restored.planName));
+        if (restored.referencePlanUrl && !restored.referencePlanUrl.startsWith("blob:")) {
+          setReferencePlanUrl(restored.referencePlanUrl);
+          setPlanPreviewUrl(restored.referencePlanUrl);
+        }
         setNotice("Your saved browser project was restored.");
       } else {
         localStorage.removeItem(STORAGE_KEY);
@@ -115,8 +141,6 @@ export function Workspace() {
       setNotice("Saved data could not be read, so a fresh project was opened.");
     }
   }, []);
-
-  useEffect(() => () => { if (localPlanUrl.current) URL.revokeObjectURL(localPlanUrl.current); }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -333,10 +357,6 @@ export function Workspace() {
     setPlanPreviewUrl(undefined);
     setReferencePlanUrl(undefined);
     setCropperRevision((value) => value + 1);
-    if (localPlanUrl.current) {
-      URL.revokeObjectURL(localPlanUrl.current);
-      localPlanUrl.current = undefined;
-    }
     if (STATIC_EXPORT) {
       const fallbackCandidates = curatedFloorPlanCandidates({ estate: layout.property.name, address: layout.property.address, ...layout.unit });
       setCandidates(fallbackCandidates);
@@ -404,14 +424,25 @@ export function Workspace() {
 
   const handlePlanUpload = (file?: File) => {
     if (!file) return;
-    if (localPlanUrl.current) URL.revokeObjectURL(localPlanUrl.current);
     setPlanName(file.name);
-    const objectUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-    localPlanUrl.current = objectUrl;
-    setPlanPreviewUrl(objectUrl);
-    setReferencePlanUrl(objectUrl);
-    setCropperRevision((value) => value + 1);
-    setMode("upload");
+    if (!file.type.startsWith("image/")) {
+      setPlanPreviewUrl(undefined);
+      setReferencePlanUrl(undefined);
+      setCropperRevision((value) => value + 1);
+      setMode("upload");
+      setNotice("PDF preview is not available in this browser build yet. Please upload an image copy of the floor plan or draw it manually.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : undefined;
+      setPlanPreviewUrl(result);
+      setReferencePlanUrl(result);
+      setCropperRevision((value) => value + 1);
+      setMode("upload");
+    };
+    reader.onerror = () => setNotice("The selected floor-plan image could not be opened in this browser.");
+    reader.readAsDataURL(file);
   };
 
   const useDrawnPlan = (rooms: DrawnRoom[]) => {
@@ -424,13 +455,14 @@ export function Workspace() {
 
   const save = async () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
       const updatedAt = new Date().toISOString();
       const projectNameToSave = projectName.trim() || projectDisplayName(layout, planName);
       const projectId = layout.projectId;
       const summary: SavedProjectSummary = { id: projectId, name: projectNameToSave, planName, updatedAt };
       const nextProjects = [summary, ...savedProjects.filter((project) => project.id !== projectId)].slice(0, 25);
-      localStorage.setItem(projectStorageKey(projectId), JSON.stringify({ layout, planName, projectName: projectNameToSave, referencePlanUrl }));
+      const persisted = await activeProjectForStorage(layout, planName, projectNameToSave, referencePlanUrl);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+      localStorage.setItem(projectStorageKey(projectId), JSON.stringify(persisted));
       localStorage.setItem(PROJECT_INDEX_KEY, JSON.stringify(nextProjects));
       setSavedProjects(nextProjects);
       setLoadProjectId(projectId);
@@ -440,11 +472,7 @@ export function Workspace() {
         return;
       }
       setCloudSaving(true);
-      let referencePlan = referencePlanUrl;
-      if (referencePlan?.startsWith("blob:")) {
-        const blob = await fetch(referencePlan).then((response) => response.blob());
-        referencePlan = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob); });
-      }
+      const referencePlan = persisted.referencePlanUrl;
       const response = await fetch("/api/project", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout, planName, referencePlan, projectName: projectNameToSave }) });
       if (!response.ok) throw new Error((await response.json() as { error?: string }).error ?? "Cloud save failed.");
       const result = await response.json() as { projects?: SavedProjectSummary[] };
