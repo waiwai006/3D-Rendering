@@ -58,6 +58,9 @@ describe("sample layout", () => {
     const estimate = buildEstimatedLayoutFromCrop({ width, height, data, colorSpace: "srgb" } as ImageData, sampleLayout);
     expect(estimate.rooms).toHaveLength(1);
     expect(estimate.walls.length).toBeGreaterThanOrEqual(4);
+    expect(estimate.doors.length).toBeGreaterThanOrEqual(1);
+    expect(estimate.windows.length).toBeGreaterThanOrEqual(1);
+    expect(estimate.platforms?.length).toBeGreaterThanOrEqual(1);
     expect(estimate.property.confidence).toBeLessThan(.5);
     expect(estimate.notes[0].severity).toBe("warning");
   });

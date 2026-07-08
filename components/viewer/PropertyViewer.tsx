@@ -2,18 +2,18 @@
 
 import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { LayoutWall, PropertyLayout } from "@/lib/layout-schema";
 import { catalogItem, type FurnishingCatalogItem, type PlacedFurnishing } from "@/lib/furnishing-catalog";
 
 const ROOM_COLORS = { living: "#dbcdb8", bedroom: "#d8d8ce", kitchen: "#c8d4ce", bathroom: "#b9cbd1", corridor: "#d6cec2", balcony: "#c4d8cf", storage: "#d1ccc4", other: "#d3d0ca" };
 
-function RoomFloor({ room, active, onSelect, onFloorPoint }: { room: PropertyLayout["rooms"][number]; active: boolean; onSelect: () => void; onFloorPoint?: (x: number, z: number) => void }) {
+function RoomFloor({ room, active, onSelect, onFloorPoint, onFloorDragStart, onFloorDragEnd }: { room: PropertyLayout["rooms"][number]; active: boolean; onSelect: () => void; onFloorPoint?: (x: number, z: number) => void; onFloorDragStart?: (x: number, z: number) => void; onFloorDragEnd?: (x: number, z: number) => void }) {
   const { widthMeters: w, lengthMeters: l } = room.dimensions;
   return (
     <group position={[room.position.x + w / 2, room.position.z, room.position.y + l / 2]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .015, 0]} receiveShadow onClick={(event) => { event.stopPropagation(); onSelect(); onFloorPoint?.(event.point.x, event.point.z); }}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .015, 0]} receiveShadow onPointerDown={(event) => { if (!onFloorDragStart) return; event.stopPropagation(); onSelect(); onFloorDragStart(event.point.x, event.point.z); }} onPointerUp={(event) => { if (!onFloorDragEnd) return; event.stopPropagation(); onFloorDragEnd(event.point.x, event.point.z); }} onClick={(event) => { event.stopPropagation(); onSelect(); if (!onFloorDragStart) onFloorPoint?.(event.point.x, event.point.z); }}>
         <planeGeometry args={[w - .04, l - .04]} />
         <meshStandardMaterial color={ROOM_COLORS[room.type]} emissive={active ? "#705b3e" : "#000000"} emissiveIntensity={active ? .11 : 0} />
       </mesh>
@@ -27,13 +27,14 @@ function RoomFloor({ room, active, onSelect, onFloorPoint }: { room: PropertyLay
 function FurnitureModel({ item, selected }: { item: FurnishingCatalogItem; selected: boolean }) {
   const { widthMeters: width, depthMeters: depth, heightMeters: height } = item.dimensions;
   const material = (color = item.color) => <meshStandardMaterial color={color} roughness={.72} emissive={selected ? "#8c5b38" : "#000000"} emissiveIntensity={selected ? .18 : 0} />;
-  if (item.shape === "sofa") return <group><mesh position={[0, .22, 0]} castShadow><boxGeometry args={[width, .35, depth]} />{material()}</mesh><mesh position={[0, .58, depth * .36]} castShadow><boxGeometry args={[width, .62, .18]} />{material("#98958d")}</mesh>{[-1, 1].map((side) => <mesh key={side} position={[side * (width / 2 - .09), .43, 0]} castShadow><boxGeometry args={[.18, .5, depth]} />{material("#929088")}</mesh>)}</group>;
-  if (item.shape === "bed") return <group><mesh position={[0, .26, 0]} castShadow><boxGeometry args={[width, .42, depth]} />{material("#e8e1d5")}</mesh><mesh position={[0, height / 2, depth / 2 - .06]} castShadow><boxGeometry args={[width, height, .12]} />{material("#7b6049")}</mesh></group>;
-  if (item.shape === "chair") return <group><mesh position={[0, .33, 0]} castShadow><boxGeometry args={[width * .72, .22, depth * .65]} />{material()}</mesh><mesh position={[0, .72, depth * .24]} castShadow><boxGeometry args={[width * .72, .7, .12]} />{material("#927858")}</mesh>{[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * width * .26, .18, z * depth * .22]} castShadow><boxGeometry args={[.06, .36, .06]} />{material("#6b5541")}</mesh>))}</group>;
-  if (item.shape === "table" || item.shape === "desk") return <group><mesh position={[0, height - .05, 0]} castShadow><boxGeometry args={[width, .1, depth]} />{material()}</mesh>{[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * (width / 2 - .08), height / 2 - .05, z * (depth / 2 - .08)]} castShadow><boxGeometry args={[.08, height - .1, .08]} />{material("#74604e")}</mesh>))}</group>;
-  if (item.shape === "wardrobe" || item.shape === "bookcase" || item.shape === "cabinet") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .5, depth / 2 + .012]}><boxGeometry args={[.018, height * .82, .024]} />{material("#b8b2a6")}</mesh>{item.shape === "bookcase" && [.25, .5, .75].map((ratio) => <mesh key={ratio} position={[0, height * ratio, depth / 2 + .018]}><boxGeometry args={[width * .9, .018, .02]} />{material("#c9c1b4")}</mesh>)}</group>;
-  if (item.shape === "tv") return <group><mesh position={[0, height * .58, 0]} castShadow><boxGeometry args={[width, height * .72, .06]} />{material("#161b1d")}</mesh><mesh position={[0, .08, 0]} castShadow><boxGeometry args={[width * .38, .08, depth]} />{material("#343a3b")}</mesh><mesh position={[0, .24, 0]} castShadow><boxGeometry args={[.07, .3, .07]} />{material("#343a3b")}</mesh></group>;
-  if (item.shape === "washer") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .55, depth / 2 + .024]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[.16, .16, .03, 32]} />{material("#8a969b")}</mesh><mesh position={[width * .25, height * .82, depth / 2 + .026]}><boxGeometry args={[.16, .07, .025]} />{material("#b9c3c7")}</mesh></group>;
+  if (item.shape === "sofa") return <group><mesh position={[0, .2, 0]} castShadow><boxGeometry args={[width, .32, depth]} />{material()}</mesh><mesh position={[0, .55, depth * .38]} castShadow><boxGeometry args={[width, .62, .18]} />{material("#888981")}</mesh>{[-1, 1].map((side) => <mesh key={side} position={[side * (width / 2 - .09), .4, 0]} castShadow><boxGeometry args={[.18, .46, depth]} />{material("#7f817a")}</mesh>)}{[-.28, .28].map((x) => <mesh key={x} position={[x * width, .43, -depth * .12]} castShadow><boxGeometry args={[width * .38, .16, depth * .42]} />{material("#b8b4aa")}</mesh>)}</group>;
+  if (item.shape === "bed") return <group><mesh position={[0, .2, 0]} castShadow><boxGeometry args={[width, .32, depth]} />{material("#d8d0c3")}</mesh><mesh position={[0, .44, -.05]} castShadow><boxGeometry args={[width * .92, .13, depth * .78]} />{material("#f0eadf")}</mesh><mesh position={[0, height / 2, depth / 2 - .06]} castShadow><boxGeometry args={[width, height, .12]} />{material("#7b6049")}</mesh>{[-.23, .23].map((x) => <mesh key={x} position={[x * width, .56, depth * .28]} castShadow><boxGeometry args={[width * .34, .09, depth * .18]} />{material("#fff7ec")}</mesh>)}</group>;
+  if (item.shape === "chair") return <group><mesh position={[0, .33, 0]} castShadow><boxGeometry args={[width * .72, .22, depth * .65]} />{material()}</mesh><mesh position={[0, .72, depth * .24]} castShadow><boxGeometry args={[width * .72, .7, .12]} />{material("#927858")}</mesh>{[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * width * .26, .18, z * depth * .22]} castShadow><boxGeometry args={[.06, .36, .06]} />{material("#6b5541")}</mesh>))}<mesh position={[0, .46, -.05]} castShadow><boxGeometry args={[width * .58, .08, depth * .45]} />{material("#d8c3a0")}</mesh></group>;
+  if (item.shape === "table" || item.shape === "desk") return <group><mesh position={[0, height - .05, 0]} castShadow><boxGeometry args={[width, .1, depth]} />{material()}</mesh>{[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * (width / 2 - .08), height / 2 - .05, z * (depth / 2 - .08)]} castShadow><boxGeometry args={[.08, height - .1, .08]} />{material("#74604e")}</mesh>))}{item.shape === "desk" && <mesh position={[0, height + .035, depth * .18]} castShadow><boxGeometry args={[width * .32, .07, .08]} />{material("#d9dde0")}</mesh>}</group>;
+  if (item.shape === "wardrobe" || item.shape === "bookcase" || item.shape === "cabinet") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .5, depth / 2 + .012]}><boxGeometry args={[.018, height * .82, .024]} />{material("#b8b2a6")}</mesh>{[.35, .65].map((x) => <mesh key={x} position={[(x - .5) * width, height * .5, depth / 2 + .026]}><boxGeometry args={[.025, height * .48, .018]} />{material("#8b887f")}</mesh>)}{item.shape === "bookcase" && [.25, .5, .75].map((ratio) => <mesh key={ratio} position={[0, height * ratio, depth / 2 + .018]}><boxGeometry args={[width * .9, .018, .02]} />{material("#c9c1b4")}</mesh>)}</group>;
+  if (item.shape === "tv") return <group><mesh position={[0, height * .58, 0]} castShadow><boxGeometry args={[width, height * .72, .06]} />{material("#111416")}</mesh><mesh position={[0, height * .58, -.035]}><boxGeometry args={[width * .92, height * .58, .012]} />{material("#252f36")}</mesh><mesh position={[0, .08, 0]} castShadow><boxGeometry args={[width * .38, .08, depth]} />{material("#343a3b")}</mesh><mesh position={[0, .24, 0]} castShadow><boxGeometry args={[.07, .3, .07]} />{material("#343a3b")}</mesh></group>;
+  if (item.shape === "fridge") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .58, depth / 2 + .018]}><boxGeometry args={[width * .92, .022, .025]} />{material("#aeb8ba")}</mesh><mesh position={[width * .32, height * .58, depth / 2 + .028]}><boxGeometry args={[.026, height * .45, .025]} />{material("#798486")}</mesh></group>;
+  if (item.shape === "washer") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .55, depth / 2 + .024]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[.16, .16, .03, 32]} />{material("#8a969b")}</mesh><mesh position={[0, height * .55, depth / 2 + .043]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[.11, .11, .012, 32]} />{material("#dbe3e6")}</mesh><mesh position={[width * .25, height * .82, depth / 2 + .026]}><boxGeometry args={[.16, .07, .025]} />{material("#b9c3c7")}</mesh></group>;
   if (item.shape === "microwave") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[-width * .1, height * .55, depth / 2 + .02]}><boxGeometry args={[width * .55, height * .55, .025]} />{material("#14191a")}</mesh><mesh position={[width * .32, height * .55, depth / 2 + .024]}><boxGeometry args={[.07, height * .5, .024]} />{material("#7b8588")}</mesh></group>;
   if (item.shape === "aircon") return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh>{[-.18, 0, .18].map((x) => <mesh key={x} position={[x * width, height * .42, depth / 2 + .018]}><boxGeometry args={[width * .22, .035, .025]} />{material("#9aa8ab")}</mesh>)}</group>;
   return <group><mesh position={[0, height / 2, 0]} castShadow><boxGeometry args={[width, height, depth]} />{material()}</mesh><mesh position={[0, height * .7, depth / 2 + .006]}><boxGeometry args={[width * .92, .012, .012]} />{material("#909797")}</mesh>{[.35, .62].map((ratio) => <mesh key={ratio} position={[width * .32, height * ratio, depth / 2 + .025]}><boxGeometry args={[.015, .22, .025]} />{material("#596061")}</mesh>)}</group>;
@@ -87,7 +88,21 @@ function Wall({ wall, doors, windows, selected, onSelect }: { wall: LayoutWall; 
     cursor = right;
   });
   pieces.push(<WallPiece key="tail" wall={wall} startAt={cursor} length={length - cursor} height={wall.heightMeters} y={wall.heightMeters / 2} selected={selected} onSelect={onSelect} />);
-  return <>{pieces}</>;
+  const marker = (opening: Opening, index: number) => {
+    const dx = wall.end.x - wall.start.x; const dz = wall.end.y - wall.start.y; const total = Math.hypot(dx, dz); const ux = dx / total; const uz = dz / total;
+    const cx = wall.start.x + ux * opening.center; const cz = wall.start.y + uz * opening.center;
+    const y = opening.kind === "door" ? 1.02 : (opening.sill ?? .9) + (opening.height ?? 1) / 2;
+    const h = opening.kind === "door" ? 2.04 : opening.height ?? 1;
+    return <mesh key={`marker-${index}`} position={[cx, y, cz]} rotation={[0, -Math.atan2(uz, ux), 0]} onClick={(event) => { event.stopPropagation(); onSelect?.(); }}><boxGeometry args={[opening.width, h, .025]} /><meshStandardMaterial color={opening.kind === "door" ? "#9a6c45" : "#8ec7dc"} transparent opacity={opening.kind === "door" ? .72 : .48} roughness={.28} /></mesh>;
+  };
+  return <>{pieces}{openings.map(marker)}</>;
+}
+
+function Platform({ platform }: { platform: NonNullable<PropertyLayout["platforms"]>[number] }) {
+  return <mesh position={[platform.position.x + platform.dimensions.widthMeters / 2, platform.dimensions.heightMeters / 2, platform.position.y + platform.dimensions.lengthMeters / 2]} receiveShadow castShadow>
+    <boxGeometry args={[platform.dimensions.widthMeters, platform.dimensions.heightMeters, platform.dimensions.lengthMeters]} />
+    <meshStandardMaterial color="#c9b79b" roughness={.82} />
+  </mesh>;
 }
 
 function FocusCamera({ room, offset }: { room?: PropertyLayout["rooms"][number]; offset: { x: number; z: number } }) {
@@ -102,8 +117,9 @@ function FocusCamera({ room, offset }: { room?: PropertyLayout["rooms"][number];
   return null;
 }
 
-export function PropertyViewer({ layout, selectedRoomId, onSelectRoom, furnishings = [], selectedFurnishingId, onSelectFurnishing, onFloorPoint, selectedWallId, onSelectWall }: { layout: PropertyLayout; selectedRoomId?: string; onSelectRoom: (id: string) => void; furnishings?: PlacedFurnishing[]; selectedFurnishingId?: string; onSelectFurnishing?: (id: string) => void; onFloorPoint?: (roomId: string, x: number, y: number) => void; selectedWallId?: string; onSelectWall?: (id: string) => void }) {
+export function PropertyViewer({ layout, selectedRoomId, onSelectRoom, furnishings = [], selectedFurnishingId, onSelectFurnishing, onFloorPoint, onWallDraw, selectedWallId, onSelectWall }: { layout: PropertyLayout; selectedRoomId?: string; onSelectRoom: (id: string) => void; furnishings?: PlacedFurnishing[]; selectedFurnishingId?: string; onSelectFurnishing?: (id: string) => void; onFloorPoint?: (roomId: string, x: number, y: number) => void; onWallDraw?: (roomId: string, start: { x: number; y: number }, end: { x: number; y: number }) => void; selectedWallId?: string; onSelectWall?: (id: string) => void }) {
   const selectedRoom = useMemo(() => layout.rooms.find((r) => r.id === selectedRoomId), [layout.rooms, selectedRoomId]);
+  const wallDragRef = useRef<{ roomId: string; x: number; y: number } | undefined>(undefined);
   const offset = useMemo(() => {
     const points = layout.walls.flatMap((wall) => [wall.start, wall.end]);
     if (!points.length) return { x: 0, z: 0 };
@@ -120,7 +136,8 @@ export function PropertyViewer({ layout, selectedRoomId, onSelectRoom, furnishin
       <directionalLight position={[5, 10, 4]} intensity={1.6} castShadow shadow-mapSize={[1024, 1024]} />
       {/* Layout x/y become Three.js x/z; Three.js y is vertical. */}
       <group position={[offset.x, 0, offset.z]}>
-        {layout.rooms.map((room) => <RoomFloor key={room.id} room={room} active={room.id === selectedRoomId} onSelect={() => onSelectRoom(room.id)} onFloorPoint={onFloorPoint ? (x, z) => onFloorPoint(room.id, x - offset.x, z - offset.z) : undefined} />)}
+        {layout.rooms.map((room) => <RoomFloor key={room.id} room={room} active={room.id === selectedRoomId} onSelect={() => onSelectRoom(room.id)} onFloorPoint={onFloorPoint ? (x, z) => onFloorPoint(room.id, x - offset.x, z - offset.z) : undefined} onFloorDragStart={onWallDraw ? (x, z) => { wallDragRef.current = { roomId: room.id, x: x - offset.x, y: z - offset.z }; } : undefined} onFloorDragEnd={onWallDraw ? (x, z) => { const start = wallDragRef.current; const end = { x: x - offset.x, y: z - offset.z }; if (start && start.roomId === room.id) onWallDraw(room.id, { x: start.x, y: start.y }, end); wallDragRef.current = undefined; } : undefined} />)}
+        {(layout.platforms ?? []).map((platform) => <Platform key={platform.id} platform={platform} />)}
         {layout.walls.map((wall) => <Wall key={wall.id} wall={wall} doors={layout.doors} windows={layout.windows} selected={wall.id === selectedWallId} onSelect={() => onSelectWall?.(wall.id)} />)}
         {furnishings.map((furnishing) => <Furnishing key={furnishing.id} furnishing={furnishing} selected={furnishing.id === selectedFurnishingId} onSelect={() => onSelectFurnishing?.(furnishing.id)} />)}
       </group>

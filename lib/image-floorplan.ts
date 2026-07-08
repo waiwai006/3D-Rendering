@@ -74,13 +74,40 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     { id: "estimated-south", start: { x: width, y: length }, end: { x: 0, y: length }, heightMeters: 2.55, thicknessMeters: .1 },
     { id: "estimated-west", start: { x: 0, y: length }, end: { x: 0, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
   );
+  const wallLength = (wall: typeof walls[number]) => Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+  const outerWalls = walls
+    .map((wall) => ({ wall, length: wallLength(wall) }))
+    .filter(({ length }) => length > Math.min(width, length) * .35)
+    .sort((a, b) => b.length - a.length);
+  const windows = outerWalls.slice(0, 3).map(({ wall, length }, index) => ({
+    id: `estimated-window-${index + 1}`,
+    wallId: wall.id,
+    widthMeters: Number(Math.min(1.8, Math.max(.8, length * .28)).toFixed(2)),
+    heightMeters: 1.05,
+    positionRatioOnWall: index === 0 ? .32 : index === 1 ? .68 : .5,
+    sillHeightMeters: .9,
+  }));
+  const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
+  const doors = doorWall ? [{
+    id: "estimated-entry-door",
+    wallId: doorWall.id,
+    widthMeters: .82,
+    positionRatioOnWall: .5,
+    opensTo: ["cropped-plan"],
+  }] : [];
+  const platforms = width > 2.4 && length > 2.4 ? [{
+    id: "estimated-platform-1",
+    roomId: "cropped-plan",
+    position: { x: Number((width * .62).toFixed(2)), y: Number((length * .62).toFixed(2)) },
+    dimensions: { widthMeters: Number((width * .26).toFixed(2)), lengthMeters: Number((length * .18).toFixed(2)), heightMeters: .18 },
+  }] : [];
 
   return {
     ...base,
     projectId: `image-estimate-${Date.now()}`,
     property: { ...base.property, sourceType: "manual", confidence: .32 },
     rooms: [{ id: "cropped-plan", name: "Cropped plan area", type: "other", dimensions: { widthMeters: width, lengthMeters: length, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .3 }],
-    walls, doors: [], windows: [],
-    notes: [{ message: "Estimated from cropped image using line detection. Scale, rooms, openings and wall types require user correction.", severity: "warning" }],
+    walls, doors, windows, platforms,
+    notes: [{ message: "Estimated from cropped image using line detection. Windows, doors and platform are inferred hints and require visual confirmation.", severity: "warning" }],
   };
 }

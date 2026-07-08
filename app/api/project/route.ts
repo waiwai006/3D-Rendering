@@ -62,3 +62,15 @@ export async function PUT(request: Request) {
   await store().setJSON(key, { projects: next });
   return NextResponse.json({ saved: true, updatedAt: project.updatedAt, projects: next.map(summary) });
 }
+
+export async function DELETE(request: Request) {
+  const key = await userKey();
+  if (!key) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  const projectId = new URL(request.url).searchParams.get("projectId");
+  if (!projectId) return NextResponse.json({ error: "projectId is required." }, { status: 400 });
+  const saved = await store().get(key, { type: "json" }) as CloudProject | CloudProjectLibrary | null;
+  const projects = saved && "projects" in saved ? saved.projects : saved ? [saved] : [];
+  const next = projects.filter((project) => project.layout.projectId !== projectId);
+  await store().setJSON(key, { projects: next });
+  return NextResponse.json({ deleted: true, projects: next.map(summary) });
+}

@@ -9,7 +9,7 @@ import { PropertyViewer } from "@/components/viewer/PropertyViewer";
 import { sampleLayout } from "@/data/sample-layout";
 import { buildManualLayout, type DrawnRoom } from "@/lib/manual-layout";
 import { buildEstimatedLayoutFromCrop } from "@/lib/image-floorplan";
-import { FURNISHING_CATALOG, catalogItem } from "@/lib/furnishing-catalog";
+import { FURNISHING_CATALOG, catalogItem, type FurnishingRoomCategory } from "@/lib/furnishing-catalog";
 import type { FloorPlanCandidate, PropertySearchResponse, SourceCoverage } from "@/lib/property-search";
 import { isPropertyLayout, ROOM_LABELS, validateLayout, type LayoutWall, type PropertyLayout, type RoomType } from "@/lib/layout-schema";
 
@@ -22,6 +22,7 @@ const PROJECT_INDEX_KEY = "hk-property-design-project-index-v1";
 const SQFT_PER_SQM = 10.7639;
 
 type SavedProjectSummary = { id: string; name: string; planName?: string; updatedAt: string };
+const ROOM_CATEGORY_LABELS: Record<FurnishingRoomCategory, string> = { living: "Living room", bedroom: "Bedroom", kitchen: "Kitchen", bathroom: "Bathroom / laundry", work: "Study / work", storage: "Storage" };
 
 function cloneSample(): PropertyLayout {
   return JSON.parse(JSON.stringify(sampleLayout)) as PropertyLayout;
@@ -52,6 +53,7 @@ export function Workspace() {
   const [layout, setLayout] = useState<PropertyLayout>(blankProject);
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [savedAt, setSavedAt] = useState<string>();
+  const [projectName, setProjectName] = useState("");
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [loadProjectId, setLoadProjectId] = useState("");
   const [notice, setNotice] = useState<string>();
@@ -68,7 +70,6 @@ export function Workspace() {
   const [selectedFurnishingId, setSelectedFurnishingId] = useState<string>();
   const [movingFurnishingId, setMovingFurnishingId] = useState<string>();
   const [selectedWallId, setSelectedWallId] = useState<string>();
-  const [wallStart, setWallStart] = useState<{ x: number; y: number }>();
   const [wallMode, setWallMode] = useState(false);
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [authConfigured, setAuthConfigured] = useState(false);
@@ -85,6 +86,7 @@ export function Workspace() {
       if (isPropertyLayout(parsed) && validateLayout(parsed).length === 0) {
         setLayout(parsed);
         setSelectedRoomId(parsed.rooms[0]?.id ?? "");
+        setProjectName(projectDisplayName(parsed));
         setNotice("Your saved browser project was restored.");
       } else {
         localStorage.removeItem(STORAGE_KEY);
@@ -111,8 +113,9 @@ export function Workspace() {
         const cloudSummaries: SavedProjectSummary[] = [];
         for (const project of result.projects) {
           if (!project.layout || !isPropertyLayout(project.layout) || validateLayout(project.layout).length > 0) continue;
-          localStorage.setItem(projectStorageKey(project.layout.projectId), JSON.stringify({ layout: project.layout, planName: project.planName, referencePlanUrl: project.referencePlan }));
-          cloudSummaries.push({ id: project.layout.projectId, name: projectDisplayName(project.layout, project.planName), planName: project.planName, updatedAt: project.updatedAt });
+          const restoredName = projectDisplayName(project.layout, project.planName);
+          localStorage.setItem(projectStorageKey(project.layout.projectId), JSON.stringify({ layout: project.layout, planName: project.planName, projectName: restoredName, referencePlanUrl: project.referencePlan }));
+          cloudSummaries.push({ id: project.layout.projectId, name: restoredName, planName: project.planName, updatedAt: project.updatedAt });
         }
         if (cloudSummaries.length) {
           setSavedProjects((current) => {
@@ -127,6 +130,7 @@ export function Workspace() {
         setSelectedRoomId(result.project.layout.rooms[0]?.id ?? "");
         setPlanName(result.project.planName);
         setReferencePlanUrl(result.project.referencePlan);
+        setProjectName(projectDisplayName(result.project.layout, result.project.planName));
         setNotice("Your latest cloud project was restored.");
       }
     }).catch(() => undefined);
@@ -184,6 +188,39 @@ export function Workspace() {
       windows: current.windows.filter((window) => window.wallId !== wallId),
     }));
     setSelectedWallId(undefined);
+  };
+
+  const selectedWall = useMemo(() => layout.walls.find((wall) => wall.id === selectedWallId), [layout.walls, selectedWallId]);
+  const addOpening = (kind: "door" | "window") => {
+    if (!selectedWall) {
+      setNotice("Select a wall in the 3D preview first, then add a door or window.");
+      return;
+    }
+    const length = Math.hypot(selectedWall.end.x - selectedWall.start.x, selectedWall.end.y - selectedWall.start.y);
+    if (length < .8) {
+      setNotice("That wall is too short for an opening.");
+      return;
+    }
+    if (kind === "door") {
+      setLayout((current) => ({ ...current, doors: [...current.doors, { id: `door-${Date.now()}`, wallId: selectedWall.id, widthMeters: Math.min(.9, length * .65), positionRatioOnWall: .5, opensTo: selectedRoom ? [selectedRoom.id] : [] }] }));
+      setNotice("Door added to the selected wall. Click the wall again if you want to remove or add more openings.");
+      return;
+    }
+    setLayout((current) => ({ ...current, windows: [...current.windows, { id: `window-${Date.now()}`, wallId: selectedWall.id, widthMeters: Math.min(1.4, length * .55), heightMeters: 1.05, positionRatioOnWall: .5, sillHeightMeters: .9 }] }));
+    setNotice("Window added to the selected wall.");
+  };
+
+  const drawWall = (_roomId: string, start: { x: number; y: number }, end: { x: number; y: number }) => {
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    if (length < .25) {
+      setNotice("Drag a longer line to create a wall.");
+      return;
+    }
+    const wall: LayoutWall = { id: `wall-${Date.now()}`, start, end, heightMeters: selectedRoom?.dimensions.heightMeters ?? 2.55, thicknessMeters: .12 };
+    setLayout((current) => ({ ...current, walls: [...current.walls, wall] }));
+    setSelectedWallId(wall.id);
+    setWallMode(false);
+    setNotice("Wall created from your drag. Click it any time to select and remove it.");
   };
 
   const searchPublicSources = async () => {
@@ -277,11 +314,11 @@ export function Workspace() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
       const updatedAt = new Date().toISOString();
-      const projectName = projectDisplayName(layout, planName);
+      const projectNameToSave = projectName.trim() || projectDisplayName(layout, planName);
       const projectId = layout.projectId;
-      const summary: SavedProjectSummary = { id: projectId, name: projectName, planName, updatedAt };
+      const summary: SavedProjectSummary = { id: projectId, name: projectNameToSave, planName, updatedAt };
       const nextProjects = [summary, ...savedProjects.filter((project) => project.id !== projectId)].slice(0, 25);
-      localStorage.setItem(projectStorageKey(projectId), JSON.stringify({ layout, planName, referencePlanUrl }));
+      localStorage.setItem(projectStorageKey(projectId), JSON.stringify({ layout, planName, projectName: projectNameToSave, referencePlanUrl }));
       localStorage.setItem(PROJECT_INDEX_KEY, JSON.stringify(nextProjects));
       setSavedProjects(nextProjects);
       setLoadProjectId(projectId);
@@ -296,7 +333,7 @@ export function Workspace() {
         const blob = await fetch(referencePlan).then((response) => response.blob());
         referencePlan = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob); });
       }
-      const response = await fetch("/api/project", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout, planName, referencePlan, projectName }) });
+      const response = await fetch("/api/project", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout, planName, referencePlan, projectName: projectNameToSave }) });
       if (!response.ok) throw new Error((await response.json() as { error?: string }).error ?? "Cloud save failed.");
       const result = await response.json() as { projects?: SavedProjectSummary[] };
       if (result.projects) setSavedProjects(result.projects);
@@ -323,13 +360,14 @@ export function Workspace() {
         setNotice("That saved floor plan could not be found in this browser.");
         return;
       }
-      const parsed = JSON.parse(saved) as { layout?: unknown; planName?: string; referencePlanUrl?: string };
+      const parsed = JSON.parse(saved) as { layout?: unknown; planName?: string; projectName?: string; referencePlanUrl?: string };
       if (!parsed.layout || !isPropertyLayout(parsed.layout) || validateLayout(parsed.layout).length > 0) {
         setNotice("That saved floor plan is no longer compatible.");
         return;
       }
       setLayout(parsed.layout);
       setPlanName(parsed.planName);
+      setProjectName(parsed.projectName ?? projectDisplayName(parsed.layout, parsed.planName));
       setReferencePlanUrl(parsed.referencePlanUrl);
       setPlanPreviewUrl(parsed.referencePlanUrl);
       setSelectedRoomId(parsed.layout.rooms[0]?.id ?? "");
@@ -345,7 +383,28 @@ export function Workspace() {
     setLayout(copy);
     setSavedAt(undefined);
     setLoadProjectId("");
+    setProjectName(projectName ? `${projectName} copy` : "");
     setNotice("New copy created. Press Save to store it as a separate floor plan.");
+  };
+
+  const deleteSavedProject = async () => {
+    const projectId = loadProjectId || layout.projectId;
+    const nextProjects = savedProjects.filter((project) => project.id !== projectId);
+    localStorage.removeItem(projectStorageKey(projectId));
+    localStorage.setItem(PROJECT_INDEX_KEY, JSON.stringify(nextProjects));
+    if (layout.projectId === projectId) localStorage.removeItem(STORAGE_KEY);
+    setSavedProjects(nextProjects);
+    setLoadProjectId("");
+    if (accountUser) {
+      try {
+        const response = await fetch(`/api/project?projectId=${encodeURIComponent(projectId)}`, { method: "DELETE" });
+        if (response.ok) {
+          const result = await response.json() as { projects?: SavedProjectSummary[] };
+          if (result.projects) setSavedProjects(result.projects);
+        }
+      } catch { /* Local deletion still succeeds. */ }
+    }
+    setNotice("Saved floor plan deleted.");
   };
 
   const reset = () => {
@@ -356,20 +415,6 @@ export function Workspace() {
   };
 
   const placeFurnishing = (roomId: string, x: number, y: number) => {
-    if (wallMode) {
-      if (!wallStart) {
-        setWallStart({ x, y });
-        setNotice("Wall start set. Click another floor point to finish the wall.");
-        return;
-      }
-      const wall: LayoutWall = { id: `wall-${Date.now()}`, start: wallStart, end: { x, y }, heightMeters: selectedRoom?.dimensions.heightMeters ?? 2.55, thicknessMeters: .12 };
-      setLayout((current) => ({ ...current, walls: [...current.walls, wall] }));
-      setSelectedWallId(wall.id);
-      setWallStart(undefined);
-      setWallMode(false);
-      setNotice("Wall created. The preview has been updated.");
-      return;
-    }
     if (!pendingCatalogId && !movingFurnishingId) return;
     const id = `item-${Date.now()}`;
     setLayout((current) => {
@@ -394,9 +439,9 @@ export function Workspace() {
     setNotice("Item placed to scale. Select it in the 3D view to rotate or remove it.");
   };
 
-  const rotateFurnishing = () => {
+  const rotateFurnishing = (delta = 45) => {
     if (!selectedFurnishingId) return;
-    setLayout((current) => ({ ...current, furnishings: (current.furnishings ?? []).map((item) => item.id === selectedFurnishingId ? { ...item, rotationDegrees: (item.rotationDegrees + 45) % 360 } : item) }));
+    setLayout((current) => ({ ...current, furnishings: (current.furnishings ?? []).map((item) => item.id === selectedFurnishingId ? { ...item, rotationDegrees: (item.rotationDegrees + delta + 360) % 360 } : item) }));
   };
 
   const removeFurnishing = () => {
@@ -411,7 +456,7 @@ export function Workspace() {
       <I18nBridge language={language} />
       <header className="topbar">
         <a className="brand" href="#top" aria-label="HK Property Design home"><span className="brand-mark"><Building2 size={18} /></span><span>HK Property Design</span></a>
-        <div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button><button className={language === "zh-Hant" ? "active" : ""} onClick={() => setLanguage("zh-Hant")}>繁</button><button className={language === "zh-Hans" ? "active" : ""} onClick={() => setLanguage("zh-Hans")}>简</button></div>{accountUser ? <div className="account-chip"><Cloud size={15} /><span>{accountUser.name ?? accountUser.email ?? "Signed in"}</span><a href="/auth/logout" aria-label="Sign out"><LogOut size={14} /></a></div> : authConfigured ? <a className="button ghost" href="/auth/login"><LogIn size={16} /> Sign in</a> : <button className="button ghost" onClick={() => setNotice("Auth0 credentials are required before account login can be enabled.")}><LogIn size={16} /> Sign in</button>}<button className="button ghost" disabled={cloudSaving} onClick={save}>{cloudSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} />} {accountUser ? "Save to cloud" : "Save floor plan"}</button><button className="button ghost" onClick={saveAsNewCopy}><Copy size={16} /> Save as new</button>{savedProjects.length > 0 && <div className="load-control"><select value={loadProjectId} onChange={(event) => setLoadProjectId(event.target.value)} aria-label="Saved floor plans"><option value="">Load saved plan...</option>{savedProjects.map((project) => <option key={project.id} value={project.id}>{project.name} · {new Date(project.updatedAt).toLocaleDateString()}</option>)}</select><button className="button ghost" disabled={!loadProjectId} onClick={loadSavedProject}>Load</button></div>}</div>
+        <div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button><button className={language === "zh-Hant" ? "active" : ""} onClick={() => setLanguage("zh-Hant")}>繁</button><button className={language === "zh-Hans" ? "active" : ""} onClick={() => setLanguage("zh-Hans")}>简</button></div>{accountUser ? <div className="account-chip"><Cloud size={15} /><span>{accountUser.name ?? accountUser.email ?? "Signed in"}</span><a href="/auth/logout" aria-label="Sign out"><LogOut size={14} /></a></div> : authConfigured ? <a className="button ghost" href="/auth/login"><LogIn size={16} /> Sign in</a> : <button className="button ghost" onClick={() => setNotice("Auth0 credentials are required before account login can be enabled.")}><LogIn size={16} /> Sign in</button>}<input className="save-name-input" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Name this floor plan" aria-label="Saved floor plan name" /><button className="button ghost" disabled={cloudSaving} onClick={save}>{cloudSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} />} {accountUser ? "Save to cloud" : "Save floor plan"}</button><button className="button ghost" onClick={saveAsNewCopy}><Copy size={16} /> Save as new</button>{savedProjects.length > 0 && <div className="load-control"><select value={loadProjectId} onChange={(event) => setLoadProjectId(event.target.value)} aria-label="Saved floor plans"><option value="">Load saved plan...</option>{savedProjects.map((project) => <option key={project.id} value={project.id}>{project.name} · {new Date(project.updatedAt).toLocaleDateString()}</option>)}</select><button className="button ghost" disabled={!loadProjectId} onClick={loadSavedProject}>Load</button><button className="button ghost danger" disabled={!loadProjectId && !savedProjects.some((project) => project.id === layout.projectId)} onClick={deleteSavedProject}><Trash2 size={14} /> Del</button></div>}</div>
       </header>
 
       <nav className="stepper" aria-label="Project steps">
@@ -458,8 +503,8 @@ export function Workspace() {
           {referencePlanUrl && <details className="reference-plan-panel" open><summary>Selected cropped floor plan</summary><p>This shows the cropped or selected plan image used to create the current layout.</p><PlanZoomViewer src={referencePlanUrl} alt={`${planName ?? "Selected"} floor plan`} /></details>}
           <div className="editor-grid">
             <aside className="card room-list"><div className="section-label">Rooms · {layout.rooms.length}</div>{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "selected" : ""} onClick={() => setSelectedRoomId(room.id)}><span className={`room-dot ${room.type}`} /><span><strong>{room.name}</strong><small>{room.dimensions.widthMeters.toFixed(1)} × {room.dimensions.lengthMeters.toFixed(1)} m</small></span><ChevronRight size={16} /></button>)}</aside>
-            <div className="card room-editor"><div className="card-heading"><div><p className="section-label">Selected room</p><h2>{selectedRoom.name}</h2></div></div><label>Room name<input value={selectedRoom.name} onChange={(event) => updateRoom("name", event.target.value)} /></label><label>Room type<select value={selectedRoom.type} onChange={(event) => updateRoom("type", event.target.value)}>{Object.entries(ROOM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="split-fields"><label>Width (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.widthMeters} onChange={(event) => updateRoomDimension("widthMeters", event.target.value)} /></label><label>Length (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.lengthMeters} onChange={(event) => updateRoomDimension("lengthMeters", event.target.value)} /></label></div><div className="wall-tools"><div><strong>Walls</strong><span>Select a room edge to add a wall, or remove an existing wall.</span></div><div className="edge-buttons"><button className="button ghost small" onClick={() => addWall("top")}><Plus size={14} /> Top</button><button className="button ghost small" onClick={() => addWall("right")}><Plus size={14} /> Right</button><button className="button ghost small" onClick={() => addWall("bottom")}><Plus size={14} /> Bottom</button><button className="button ghost small" onClick={() => addWall("left")}><Plus size={14} /> Left</button></div><select value={selectedWallId ?? ""} onChange={(event) => setSelectedWallId(event.target.value || undefined)}><option value="">Select wall to remove...</option>{layout.walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>)}</select><button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove wall</button></div><p className="small-note">Room size changes and wall edits update the preview immediately.</p></div>
-            <div className="card mini-preview"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} /></div>
+            <div className="card room-editor"><div className="card-heading"><div><p className="section-label">Selected room</p><h2>{selectedRoom.name}</h2></div></div><label>Room name<input value={selectedRoom.name} onChange={(event) => updateRoom("name", event.target.value)} /></label><label>Room type<select value={selectedRoom.type} onChange={(event) => updateRoom("type", event.target.value)}>{Object.entries(ROOM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="split-fields"><label>Width (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.widthMeters} onChange={(event) => updateRoomDimension("widthMeters", event.target.value)} /></label><label>Length (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.lengthMeters} onChange={(event) => updateRoomDimension("lengthMeters", event.target.value)} /></label></div><div className="wall-tools"><div><strong>Walls, doors & windows</strong><span>Click a wall in the preview to select it. Use Explore 3D to drag-draw new walls.</span></div><select value={selectedWallId ?? ""} onChange={(event) => setSelectedWallId(event.target.value || undefined)}><option value="">Select a wall...</option>{layout.walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>)}</select><div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div><button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><p className="small-note">Room size changes, wall selection and openings update the preview immediately.</p></div>
+            <div className="card mini-preview"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} selectedWallId={selectedWallId} onSelectWall={setSelectedWallId} /></div>
           </div>
           <div className="bottom-action"><span>{savedAt ? `Last saved at ${savedAt}` : "Changes are not saved yet"}</span><button className="button primary" onClick={() => setStep("explore")}>Generate 3D view <ChevronRight size={17} /></button></div>
         </section>
@@ -469,8 +514,8 @@ export function Workspace() {
         <section className="viewer-page">
           <div className="viewer-toolbar"><div><p className="eyebrow">Interactive model</p><h1>{layout.property.name || "Untitled property"}</h1><p>{layout.property.address || "Address not added"} · {layout.unit.saleableAreaSqFt ? areaUnit === "sqft" ? `${Number(layout.unit.saleableAreaSqFt.toFixed(1))} sq ft` : `${Number((layout.unit.saleableAreaSqFt / SQFT_PER_SQM).toFixed(1))} m²` : "Area unknown"}</p></div><div className="viewer-actions"><button className="button ghost" onClick={() => setStep("layout")}><ArrowLeft size={16} /> Back</button><button className="button ghost" onClick={() => setStep("layout")}>Edit layout</button><button className="button primary" onClick={save}><Save size={16} /> Save</button></div></div>
           <div className="design-studio">
-            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setMovingFurnishingId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{(pendingCatalogId || movingFurnishingId) && <div className="placement-prompt"><strong>{pendingCatalogId ? catalogItem(pendingCatalogId)?.name : "Move selected item"}</strong><span>Click the desired position on a room floor.</span></div>}{selectedFurnishingId && <div className="item-actions"><button className="button ghost small" onClick={() => { setWallMode(false); setPendingCatalogId(undefined); setMovingFurnishingId(selectedFurnishingId); }}><Move size={15} /> Move</button><button className="button ghost small" onClick={rotateFurnishing}><RotateCw size={15} /> Rotate 45°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={15} /> Remove</button></div>}<div className="wall-tools"><div><strong>3D walls</strong><span>Click two floor points to create a wall. Click an existing wall to select and remove it.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">{wallStart ? "Now click the wall end point." : "Click the wall start point on any room floor."}</p>}<button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
-            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={setSelectedFurnishingId} onFloorPoint={placeFurnishing} selectedWallId={selectedWallId} onSelectWall={setSelectedWallId} /><div className="viewer-hint">{wallMode ? "Click two floor points to create a wall" : "Drag to orbit · Scroll to zoom · Click a floor to place an item"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div></div>
+            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setMovingFurnishingId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{ROOM_CATEGORY_LABELS[item.roomCategory]} · {item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{(pendingCatalogId || movingFurnishingId) && <div className="placement-prompt"><strong>{pendingCatalogId ? catalogItem(pendingCatalogId)?.name : "Move selected item"}</strong><span>Click the desired position on a room floor.</span></div>}{selectedFurnishingId && <div className="item-actions"><button className="button ghost small" onClick={() => { setWallMode(false); setPendingCatalogId(undefined); setMovingFurnishingId(selectedFurnishingId); }}><Move size={15} /> Move</button><button className="button ghost small" onClick={() => rotateFurnishing(-15)}><RotateCcw size={15} /> -15°</button><button className="button ghost small" onClick={() => rotateFurnishing(15)}><RotateCw size={15} /> +15°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={15} /> Remove</button></div>}<div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">Drag across any room floor to draw the wall.</p>}<div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div><button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
+            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={setSelectedFurnishingId} onFloorPoint={wallMode ? undefined : placeFurnishing} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={setSelectedWallId} /><div className="viewer-hint">{wallMode ? "Drag on the floor to draw a wall · Click a wall to select it" : "Drag to orbit · Scroll to zoom · Click a floor to place an item · Click a wall to select"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div></div>
           </div>
         </section>
       )}

@@ -38,6 +38,13 @@ export interface LayoutWindow {
   sillHeightMeters?: number;
 }
 
+export interface LayoutPlatform {
+  id: string;
+  roomId?: string;
+  position: Point2D;
+  dimensions: { widthMeters: number; lengthMeters: number; heightMeters: number };
+}
+
 export interface PropertyLayout {
   schemaVersion: "1.0";
   projectId: string;
@@ -47,6 +54,7 @@ export interface PropertyLayout {
   walls: LayoutWall[];
   doors: LayoutDoor[];
   windows: LayoutWindow[];
+  platforms?: LayoutPlatform[];
   notes: { message: string; severity: "info" | "warning" | "error" }[];
   furnishings?: import("./furnishing-catalog").PlacedFurnishing[];
 }
@@ -72,6 +80,10 @@ export function validateLayout(layout: PropertyLayout): string[] {
     if (!ids.has(item.roomId)) errors.push(`${item.id}: referenced room does not exist.`);
     if (!Number.isFinite(item.position.x) || !Number.isFinite(item.position.y) || !Number.isFinite(item.rotationDegrees)) errors.push(`${item.id}: placement must use finite coordinates.`);
   }
+  for (const platform of layout.platforms ?? []) {
+    if (platform.roomId && !ids.has(platform.roomId)) errors.push(`${platform.id}: referenced room does not exist.`);
+    if (!Number.isFinite(platform.position.x) || !Number.isFinite(platform.position.y) || platform.dimensions.widthMeters <= 0 || platform.dimensions.lengthMeters <= 0 || platform.dimensions.heightMeters <= 0) errors.push(`${platform.id}: platform dimensions must be positive.`);
+  }
   return errors;
 }
 
@@ -81,6 +93,7 @@ export function isPropertyLayout(value: unknown): value is PropertyLayout {
   if (candidate.schemaVersion !== "1.0" || !candidate.property || !candidate.unit) return false;
   if (!Array.isArray(candidate.rooms) || !Array.isArray(candidate.walls) || !Array.isArray(candidate.doors) || !Array.isArray(candidate.windows) || !Array.isArray(candidate.notes)) return false;
   if (candidate.furnishings !== undefined && (!Array.isArray(candidate.furnishings) || !candidate.furnishings.every((item) => Boolean(item && typeof item.id === "string" && typeof item.catalogId === "string" && typeof item.roomId === "string" && item.position && Number.isFinite(item.position.x) && Number.isFinite(item.position.y) && Number.isFinite(item.rotationDegrees))))) return false;
+  if (candidate.platforms !== undefined && (!Array.isArray(candidate.platforms) || !candidate.platforms.every((platform) => Boolean(platform && typeof platform.id === "string" && platform.position && platform.dimensions)))) return false;
   return candidate.rooms.every((room) => Boolean(room && typeof room.id === "string" && room.dimensions && room.position))
     && candidate.walls.every((wall) => Boolean(wall && typeof wall.id === "string" && wall.start && wall.end));
 }
