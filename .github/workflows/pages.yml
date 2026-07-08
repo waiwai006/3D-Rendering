@@ -33,8 +33,8 @@ jobs:
       - name: Test
         run: npm test -- --exclude '.deploy-upload/**'
 
-      - name: Disable server routes for static Pages export
-        run: rm -rf app/api
+      - name: Disable server-only files for static Pages export
+        run: rm -rf app/api middleware.ts
 
       - name: Build static site
         run: npm run build
