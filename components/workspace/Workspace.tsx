@@ -80,6 +80,7 @@ export function Workspace() {
   const [selectedWallId, setSelectedWallId] = useState<string>();
   const [wallStart, setWallStart] = useState<{ roomId: string; x: number; y: number }>();
   const [wallMode, setWallMode] = useState(false);
+  const [movingWallId, setMovingWallId] = useState<string>();
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [authConfigured, setAuthConfigured] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
@@ -163,7 +164,7 @@ export function Workspace() {
   };
   const setDecorStyle = (styleId: string) => {
     setLayout((current) => ({ ...current, decorStyleId: styleId }));
-    setNotice(`${decorStyleById(styleId).name} style applied to the 3D rendering.`);
+    setNotice(`${decorStyleById(styleId).name} style applied. Existing and new furniture will use matching material cues.`);
   };
 
   const updateRoom = (key: "name" | "type", value: string) => setLayout((current) => ({
@@ -207,9 +208,36 @@ export function Workspace() {
       windows: current.windows.filter((window) => window.wallId !== wallId),
     }));
     setSelectedWallId(undefined);
+    setMovingWallId(undefined);
   };
 
   const selectedWall = useMemo(() => layout.walls.find((wall) => wall.id === selectedWallId), [layout.walls, selectedWallId]);
+  const moveWall = (wallId: string, delta: { x: number; y: number }) => {
+    setLayout((current) => ({
+      ...current,
+      walls: current.walls.map((wall) => wall.id === wallId ? {
+        ...wall,
+        start: { x: Number((wall.start.x + delta.x).toFixed(2)), y: Number((wall.start.y + delta.y).toFixed(2)) },
+        end: { x: Number((wall.end.x + delta.x).toFixed(2)), y: Number((wall.end.y + delta.y).toFixed(2)) },
+      } : wall),
+    }));
+    setSelectedWallId(wallId);
+  };
+
+  const rotateWall = (deltaDegrees: number) => {
+    if (!selectedWall) return;
+    const angle = deltaDegrees * Math.PI / 180;
+    const center = { x: (selectedWall.start.x + selectedWall.end.x) / 2, y: (selectedWall.start.y + selectedWall.end.y) / 2 };
+    const rotate = (point: { x: number; y: number }) => {
+      const x = point.x - center.x;
+      const y = point.y - center.y;
+      return {
+        x: Number((center.x + x * Math.cos(angle) - y * Math.sin(angle)).toFixed(2)),
+        y: Number((center.y + x * Math.sin(angle) + y * Math.cos(angle)).toFixed(2)),
+      };
+    };
+    setLayout((current) => ({ ...current, walls: current.walls.map((wall) => wall.id === selectedWall.id ? { ...wall, start: rotate(wall.start), end: rotate(wall.end) } : wall) }));
+  };
   const addOpening = (kind: "door" | "window") => {
     if (!selectedWall) {
       setNotice("Select a wall in the 3D preview first, then add a door or window.");
@@ -244,6 +272,16 @@ export function Workspace() {
   };
 
   const handleWallPoint = (roomId: string, x: number, y: number) => {
+    if (movingWallId) {
+      const wall = layout.walls.find((candidate) => candidate.id === movingWallId);
+      if (!wall) return;
+      const center = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+      moveWall(movingWallId, { x: x - center.x, y: y - center.y });
+      setMovingWallId(undefined);
+      setWallMode(false);
+      setNotice("Wall moved. You can drag it again or use the rotate buttons.");
+      return;
+    }
     if (!wallStart || wallStart.roomId !== roomId) {
       setWallStart({ roomId, x, y });
       setNotice("Wall start set. Click another point or drag across the floor to finish the wall.");
@@ -493,6 +531,46 @@ export function Workspace() {
     setMovingFurnishingId(undefined);
   };
 
+  const applyStyledStarterSet = () => {
+    const starterByRoom: Partial<Record<RoomType, string[]>> = {
+      living: ["ikea-kivik-2-seat", "ikea-besta-tv-bench", "fortress-55-tv", "ikea-lack-coffee-table"],
+      bedroom: ["ikea-malm-double", "ikea-pax-wardrobe", "fortress-43-tv"],
+      kitchen: ["fortress-slim-fridge", "fortress-microwave"],
+      bathroom: ["fortress-front-load-washer"],
+      storage: ["ikea-kallax-shelf"],
+      other: ["ikea-kallax-shelf"],
+    };
+    setLayout((current) => {
+      const newItems = current.rooms.flatMap((room) => {
+        const catalogIds = starterByRoom[room.type] ?? [];
+        return catalogIds.slice(0, room.type === "living" ? 4 : 2).flatMap((catalogId, index) => {
+          const item = catalogItem(catalogId);
+          if (!item) return [];
+          const columns = Math.min(catalogIds.length, 2);
+          const row = Math.floor(index / columns);
+          const column = index % columns;
+          const xRatio = columns === 1 ? .5 : column === 0 ? .28 : .72;
+          const yRatio = row === 0 ? .28 : .68;
+          return [{
+            id: `item-${Date.now()}-${room.id}-${catalogId}`,
+            catalogId,
+            roomId: room.id,
+            position: {
+              x: Number((room.position.x + room.dimensions.widthMeters * xRatio).toFixed(2)),
+              y: Number((room.position.y + room.dimensions.lengthMeters * yRatio).toFixed(2)),
+            },
+            rotationDegrees: item.shape === "tv" || item.shape === "cabinet" || item.shape === "wardrobe" ? 0 : room.dimensions.widthMeters > room.dimensions.lengthMeters ? 0 : 90,
+          }];
+        });
+      });
+      const protectedExisting = (current.furnishings ?? []).filter((item) => !newItems.some((candidate) => candidate.roomId === item.roomId && candidate.catalogId === item.catalogId));
+      return { ...current, furnishings: [...protectedExisting, ...newItems] };
+    });
+    setPendingCatalogId(undefined);
+    setMovingFurnishingId(undefined);
+    setNotice(`${selectedDecorStyle.name} starter furniture and electronics placed. Select any item to move, rotate or remove.`);
+  };
+
   return (
     <main className="app-shell" id="top">
       <I18nBridge language={language} />
@@ -546,7 +624,7 @@ export function Workspace() {
           <div className="editor-grid">
             <aside className="card room-list"><div className="section-label">Rooms · {layout.rooms.length}</div>{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "selected" : ""} onClick={() => setSelectedRoomId(room.id)}><span className={`room-dot ${room.type}`} /><span><strong>{room.name}</strong><small>{room.dimensions.widthMeters.toFixed(1)} × {room.dimensions.lengthMeters.toFixed(1)} m</small></span><ChevronRight size={16} /></button>)}</aside>
             <div className="card room-editor"><div className="card-heading"><div><p className="section-label">Selected room</p><h2>{selectedRoom.name}</h2></div></div><label>Room name<input value={selectedRoom.name} onChange={(event) => updateRoom("name", event.target.value)} /></label><label>Room type<select value={selectedRoom.type} onChange={(event) => updateRoom("type", event.target.value)}>{Object.entries(ROOM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="split-fields"><label>Width (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.widthMeters} onChange={(event) => updateRoomDimension("widthMeters", event.target.value)} /></label><label>Length (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.lengthMeters} onChange={(event) => updateRoomDimension("lengthMeters", event.target.value)} /></label></div><div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">{wallStart ? "Wall start set. Click another point to finish." : "Click once to start, click again to finish, or drag on the preview floor."}</p>}<select value={selectedWallId ?? ""} onChange={(event) => setSelectedWallId(event.target.value || undefined)}><option value="">Select a wall...</option>{layout.walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>)}</select><div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div><button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><p className="small-note">Room size changes, wall selection and openings update the preview immediately.</p></div>
-            <div className="card mini-preview"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} onFloorPoint={wallMode ? handleWallPoint : undefined} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={setSelectedWallId} /></div>
+            <div className="card mini-preview"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} onFloorPoint={(wallMode || movingWallId) ? handleWallPoint : undefined} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={(id) => { setSelectedFurnishingId(undefined); setSelectedWallId(id); }} onWallMove={moveWall} /></div>
           </div>
           <div className="bottom-action"><span>{savedAt ? `Last saved at ${savedAt}` : "Changes are not saved yet"}</span><button className="button primary" onClick={() => setStep("explore")}>Generate 3D view <ChevronRight size={17} /></button></div>
         </section>
@@ -556,8 +634,8 @@ export function Workspace() {
         <section className="viewer-page">
           <div className="viewer-toolbar"><div><p className="eyebrow">Interactive model</p><h1>{layout.property.name || "Untitled property"}</h1><p>{layout.property.address || "Address not added"} · {layout.unit.saleableAreaSqFt ? areaUnit === "sqft" ? `${Number(layout.unit.saleableAreaSqFt.toFixed(1))} sq ft` : `${Number((layout.unit.saleableAreaSqFt / SQFT_PER_SQM).toFixed(1))} m²` : "Area unknown"}</p></div><div className="viewer-actions"><button className="button ghost" onClick={() => setStep("layout")}><ArrowLeft size={16} /> Back</button><button className="button ghost" onClick={() => setStep("layout")}>Edit layout</button><button className="button primary" onClick={save}><Save size={16} /> Save</button></div></div>
           <div className="design-studio">
-            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it.</p></div><div className="style-agent-panel"><label>Decor style<select value={selectedDecorStyle.id} onChange={(event) => setDecorStyle(event.target.value)}>{DECOR_STYLES.map((style) => <option key={style.id} value={style.id}>{style.name} · {style.chineseName}</option>)}</select></label><div className="agent-card"><strong>Interior design specialist</strong><p>{selectedDecorStyle.specialistBrief}</p><a href={selectedDecorStyle.samplePhotoSearchUrl} target="_blank" rel="noreferrer">Open sample photo search</a></div><div className="agent-card worker"><strong>Design worker</strong><ul>{selectedDecorStyle.workerActions.map((action) => <li key={action}>{action}</li>)}</ul></div></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setMovingFurnishingId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{ROOM_CATEGORY_LABELS[item.roomCategory]} · {item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{(pendingCatalogId || movingFurnishingId) && <div className="placement-prompt"><strong>{pendingCatalogId ? catalogItem(pendingCatalogId)?.name : "Move selected item"}</strong><span>Click the desired position on a room floor.</span></div>}{selectedFurnishingId && <div className="item-actions"><button className="button ghost small" onClick={() => { setWallMode(false); setPendingCatalogId(undefined); setMovingFurnishingId(selectedFurnishingId); }}><Move size={15} /> Move</button><button className="button ghost small" onClick={() => rotateFurnishing(-15)}><RotateCcw size={15} /> -15°</button><button className="button ghost small" onClick={() => rotateFurnishing(15)}><RotateCw size={15} /> +15°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={15} /> Remove</button></div>}<div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">Click once to start, click again to finish, or drag across any room floor.</p>}<div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div><button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
-            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={setSelectedFurnishingId} onFloorPoint={wallMode ? handleWallPoint : placeFurnishing} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={setSelectedWallId} /><div className="viewer-hint">{wallMode ? (wallStart ? "Wall start set · Click another point or drag to finish" : "Click once to start, click again to finish · Or drag on the floor") : "Drag to orbit · Scroll to zoom · Click a floor to place an item · Click a wall to select"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div></div>
+            <aside className="furnishing-panel card"><div><p className="section-label">Place real-size items</p><h2>Furniture & electronics</h2><p>Choose an item, then click a room floor to place it.</p></div><div className="style-agent-panel"><label>Decor style<select value={selectedDecorStyle.id} onChange={(event) => setDecorStyle(event.target.value)}>{DECOR_STYLES.map((style) => <option key={style.id} value={style.id}>{style.name} · {style.chineseName}</option>)}</select></label><button className="button ghost small wide" onClick={applyStyledStarterSet}><PackagePlus size={15} /> Place styled starter set</button><p className="small-note">Adds common prototype items such as sofa, TV, storage, bed, wardrobe, fridge, microwave and washer where matching rooms exist.</p></div><div className="catalog-groups">{(["furniture", "electronics"] as const).map((category) => <section key={category}><h3>{category === "furniture" ? "IKEA furniture baselines" : "Common electronics"}</h3>{FURNISHING_CATALOG.filter((item) => item.category === category).map((item) => <button key={item.id} className={pendingCatalogId === item.id ? "selected" : ""} onClick={() => { setWallMode(false); setMovingFurnishingId(undefined); setMovingWallId(undefined); setPendingCatalogId(pendingCatalogId === item.id ? undefined : item.id); }}><PackagePlus size={17} /><span><strong>{item.name}</strong><small>{ROOM_CATEGORY_LABELS[item.roomCategory]} · {item.dimensions.widthMeters.toFixed(2)} × {item.dimensions.depthMeters.toFixed(2)} × {item.dimensions.heightMeters.toFixed(2)} m</small></span></button>)}</section>)}</div>{(pendingCatalogId || movingFurnishingId || movingWallId) && <div className="placement-prompt"><strong>{pendingCatalogId ? catalogItem(pendingCatalogId)?.name : movingWallId ? "Move selected wall" : "Move selected item"}</strong><span>Click the desired position on a room floor.</span></div>}<div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall. Selected walls can also be dragged directly.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setMovingWallId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">Click once to start, click again to finish, or drag across any room floor.</p>}<div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div></div><details className="catalog-sources"><summary>Dimension sources</summary>{FURNISHING_CATALOG.map((item) => <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer"><strong>{item.name}</strong><small>{item.note}</small></a>)}</details></aside>
+            <div className="full-viewer"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} furnishings={layout.furnishings} selectedFurnishingId={selectedFurnishingId} onSelectFurnishing={(id) => { setSelectedWallId(undefined); setMovingWallId(undefined); setSelectedFurnishingId(id); }} onFloorPoint={(wallMode || movingWallId) ? handleWallPoint : placeFurnishing} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={(id) => { setSelectedFurnishingId(undefined); setMovingFurnishingId(undefined); setSelectedWallId(id); }} onWallMove={moveWall} /><div className="viewer-hint">{movingWallId ? "Click a floor position to move the selected wall centre there" : wallMode ? (wallStart ? "Wall start set · Click another point or drag to finish" : "Click once to start, click again to finish · Or drag on the floor") : "Drag to orbit · Scroll to zoom · Click an item or wall to select"}</div><div className="room-chips">{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "active" : ""} onClick={() => setSelectedRoomId(room.id)}>{room.name}</button>)}</div>{selectedFurnishingId && <div className="selection-toolbar"><span>Furniture</span><button className="button ghost small" onClick={() => { setWallMode(false); setPendingCatalogId(undefined); setMovingWallId(undefined); setMovingFurnishingId(selectedFurnishingId); }}><Move size={14} /> Move</button><button className="button ghost small" onClick={() => rotateFurnishing(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateFurnishing(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={removeFurnishing}><Trash2 size={14} /> Remove</button></div>}{selectedWallId && !selectedFurnishingId && <div className="selection-toolbar"><span>Wall / opening</span><button className="button ghost small" onClick={() => { setWallMode(false); setPendingCatalogId(undefined); setMovingFurnishingId(undefined); setMovingWallId(selectedWallId); }}><Move size={14} /> Move</button><button className="button ghost small" onClick={() => rotateWall(-15)}><RotateCcw size={14} /> -15°</button><button className="button ghost small" onClick={() => rotateWall(15)}><RotateCw size={14} /> +15°</button><button className="button ghost small danger" onClick={() => removeWall(selectedWallId)}><Trash2 size={14} /> Remove</button></div>}</div>
           </div>
         </section>
       )}
