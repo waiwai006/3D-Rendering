@@ -26,6 +26,7 @@ button { color:inherit; }
 .button.ghost { background:white; border:1px solid var(--line); }
 .button.ghost.active { color:white; border-color:var(--sage-dark); background:var(--sage-dark); }
 .button.primary { color:white; background:var(--sage-dark); box-shadow:0 8px 20px rgba(64,88,75,.18); }
+.top-actions .button.ghost { color:var(--ink); }
 .button.wide { width:100%; margin-top:6px; }
 .stepper { display:flex; align-items:center; justify-content:center; gap:40px; min-height:62px; border-bottom:1px solid var(--line); background:#f1f1eb; }
 .stepper button { display:flex; gap:9px; align-items:center; border:0; background:transparent; color:#8a918d; font-weight:600; cursor:pointer; }
@@ -131,6 +132,7 @@ input:focus, select:focus { border-color:var(--sage); box-shadow:0 0 0 3px rgba(
 .opening-link { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:white; color:var(--ink); text-align:left; cursor:pointer; }
 .opening-link.active { border-color:var(--sage-dark); background:#edf1ec; color:var(--sage-dark); }
 .all-openings { border-top:1px solid var(--line); padding-top:10px; }
+.all-openings strong { display:block; margin-bottom:8px; }
 .edge-buttons { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .wall-tools select { margin:0; }
 .style-agent-panel { margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:12px; background:#f8f7f1; }
@@ -157,5 +159,27 @@ input:focus, select:focus { border-color:var(--sage); box-shadow:0 0 0 3px rgba(
 .room-chips button { pointer-events:auto; border:1px solid rgba(53,65,60,.18); background:rgba(255,255,255,.88); backdrop-filter:blur(8px); border-radius:99px; padding:7px 11px; cursor:pointer; font-weight:700; font-size:12px; }.room-chips button.active { background:var(--sage-dark); color:white; }
 .selection-toolbar { position:absolute; right:16px; bottom:16px; z-index:5; display:flex; align-items:center; flex-wrap:wrap; gap:7px; max-width:min(520px,calc(100% - 32px)); padding:9px; border:1px solid rgba(222,223,216,.9); border-radius:13px; background:rgba(255,254,250,.92); box-shadow:0 12px 34px rgba(24,34,30,.18); backdrop-filter:blur(12px); }
 .selection-toolbar span { padding:0 5px; color:var(--sage-dark); font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.7px; }
+[data-theme="dark"] .topbar { background:rgba(21,27,25,.92); }
+[data-theme="dark"] .language-switch,
+[data-theme="dark"] .theme-switch { background:#24302c; }
+[data-theme="dark"] .language-switch button,
+[data-theme="dark"] .theme-switch button { color:#c7d3cd; }
+[data-theme="dark"] .language-switch button.active,
+[data-theme="dark"] .theme-switch button.active { background:#d7e3dc; color:#15201b; box-shadow:none; }
+[data-theme="dark"] .button.ghost { background:#24302c; color:var(--ink); border-color:#44534d; }
+[data-theme="dark"] .button.ghost.active { background:#d7e3dc; color:#15201b; border-color:#d7e3dc; }
+[data-theme="dark"] .button.primary { background:#d7e3dc; color:#15201b; box-shadow:0 8px 20px rgba(0,0,0,.28); }
+[data-theme="dark"] .button.ghost.danger { color:#ffd2d2; border-color:#9d6363; background:#352424; }
+[data-theme="dark"] .catalog-groups button,
+[data-theme="dark"] .room-list button,
+[data-theme="dark"] .saved-plan-list button,
+[data-theme="dark"] .choice-tabs > button,
+[data-theme="dark"] .selection-toolbar,
+[data-theme="dark"] .placement-prompt { background:#24302c; color:var(--ink); border-color:#44534d; }
+[data-theme="dark"] .catalog-groups button.selected,
+[data-theme="dark"] .room-list button.selected,
+[data-theme="dark"] .choice-tabs > button.active { background:#d7e3dc; color:#15201b; border-color:#d7e3dc; }
+[data-theme="dark"] .opening-link { background:#24302c; color:var(--ink); border-color:#44534d; }
+[data-theme="dark"] .opening-link.active { background:#d7e3dc; color:#15201b; border-color:#d7e3dc; }
 @media (max-width:980px) { .page-grid { grid-template-columns:1fr; }.details-page { padding-top:30px; }.hero-copy { padding:25px 8px; }.photo-card { grid-column:auto; }.candidate-grid { grid-template-columns:repeat(2,1fr); }.editor-grid { grid-template-columns:220px 1fr; }.mini-preview { grid-column:1/-1; height:480px; }.stepper { gap:15px; }.design-studio { grid-template-columns:1fr; }.furnishing-panel { min-height:0; max-height:none; }.catalog-groups { display:grid; grid-template-columns:1fr 1fr; gap:14px; } }
 @media (max-width:680px) { .topbar { padding:0 16px; }.prototype-pill { display:none; }.stepper { padding:8px 12px; justify-content:space-around; }.stepper button { font-size:0; gap:0; }.stepper button span { font-size:12px; }.page-grid,.workspace-page,.viewer-page,.onboarding-page { width:min(100% - 24px,1280px); }.details-page { padding-bottom:30px; }.hero-copy { padding-top:15px; }.form-card,.photo-card,.source-form,.upload-workspace { padding:20px; }.choice-tabs,.candidate-grid,.source-coverage>div,.catalog-groups { grid-template-columns:1fr; }.choice-tabs>button { min-height:60px; }.form-grid { grid-template-columns:1fr; }.results-heading,.fallback-row,.draw-toolbar,.draw-footer { align-items:flex-start; flex-direction:column; }.fallback-row span { margin-right:0; }.draw-toolbar>div:last-child { width:100%; }.draw-toolbar>div:last-child .button { flex:1; }.draw-footer .button { width:100%; }.confirm-dialog { padding:20px; }.confirm-dialog>img { height:240px; }.confirm-facts { grid-template-columns:1fr; }.dialog-actions { flex-direction:column-reverse; }.dialog-actions .button { width:100%; }.workspace-heading,.viewer-toolbar { align-items:flex-start; flex-direction:column; }.heading-actions { width:100%; }.heading-actions .button { flex:1; }.source-banner,.source-banner>div { align-items:flex-start; }.source-banner { flex-direction:column; }.editor-grid { grid-template-columns:1fr; }.mini-preview { grid-column:auto; height:430px; }.room-list { max-height:260px; overflow:auto; }.bottom-action { align-items:flex-start; flex-direction:column; }.bottom-action .button { width:100%; }.viewer-actions { width:100%; }.viewer-actions .button { flex:1; }.full-viewer { min-height:500px; height:65vh; }.viewer-hint { display:none; } }
