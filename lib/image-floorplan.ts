@@ -18,9 +18,9 @@ function createImageProbe(image: ImageData) {
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
   const { isDark, luminanceAt } = createImageProbe(image);
   const minSide = Math.min(image.width, image.height);
-  const step = Math.max(3, Math.round(minSide * .012));
-  const minRadius = Math.max(8, Math.round(minSide * .045));
-  const maxRadius = Math.max(minRadius + 4, Math.round(minSide * .11));
+  const step = Math.max(2, Math.round(minSide * .008));
+  const minRadius = Math.max(6, Math.round(minSide * .03));
+  const maxRadius = Math.max(minRadius + 6, Math.round(minSide * .14));
   const margin = maxRadius + 4;
   const configs = [
     { sx: 1, sy: 1, swing: { hinge: "start" as const, direction: 1 as const } },
@@ -33,8 +33,8 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
   const sampleLineRatio = (x: number, y: number, dx: number, dy: number, length: number) => {
     let dark = 0;
     let total = 0;
-    for (let distance = 0; distance <= length; distance += 2) {
-      if (isDark(x + dx * distance, y + dy * distance, 140)) dark++;
+    for (let distance = 0; distance <= length; distance += 1.5) {
+      if (isDark(x + dx * distance, y + dy * distance, 154)) dark++;
       total++;
     }
     return dark / Math.max(1, total);
@@ -42,11 +42,15 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
 
   for (let y = margin; y < image.height - margin; y += step) {
     for (let x = margin; x < image.width - margin; x += step) {
-      if (!isDark(x, y, 115)) continue;
       for (const config of configs) {
-        const frameHorizontal = sampleLineRatio(x, y, config.sx, 0, Math.round(maxRadius * .55));
-        const frameVertical = sampleLineRatio(x, y, 0, config.sy, Math.round(maxRadius * .55));
-        if (frameHorizontal < .55 || frameVertical < .55) continue;
+        const frameHorizontal = sampleLineRatio(x, y, config.sx, 0, Math.round(maxRadius * .72));
+        const frameVertical = sampleLineRatio(x, y, 0, config.sy, Math.round(maxRadius * .72));
+        const hingeDensity = (
+          (isDark(x, y, 160) ? 1 : 0)
+          + (isDark(x + config.sx * 2, y, 160) ? 1 : 0)
+          + (isDark(x, y + config.sy * 2, 160) ? 1 : 0)
+        ) / 3;
+        if (frameHorizontal < .38 || frameVertical < .38 || hingeDensity < .34) continue;
 
         let bestRadius = 0;
         let bestArcRatio = 0;
@@ -55,34 +59,34 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
           let arcTotal = 0;
           let interiorLight = 0;
           let interiorTotal = 0;
-          for (let sample = 0; sample <= 10; sample++) {
-            const angle = sample / 10 * Math.PI / 2;
+          for (let sample = 0; sample <= 14; sample++) {
+            const angle = sample / 14 * Math.PI / 2;
             const px = x + config.sx * Math.cos(angle) * radius;
             const py = y + config.sy * Math.sin(angle) * radius;
-            if (isDark(px, py, 145)) arcDark++;
+            if (isDark(px, py, 160)) arcDark++;
             arcTotal++;
 
-            const innerRadius = radius * .62;
+            const innerRadius = radius * .56;
             const ix = x + config.sx * Math.cos(angle) * innerRadius;
             const iy = y + config.sy * Math.sin(angle) * innerRadius;
-            if (luminanceAt(ix, iy) > 165) interiorLight++;
+            if (luminanceAt(ix, iy) > 150) interiorLight++;
             interiorTotal++;
           }
           const arcRatio = arcDark / Math.max(1, arcTotal);
           const interiorRatio = interiorLight / Math.max(1, interiorTotal);
-          if (arcRatio > bestArcRatio && interiorRatio > .55) {
+          if (arcRatio > bestArcRatio && interiorRatio > .42) {
             bestArcRatio = arcRatio;
             bestRadius = radius;
           }
         }
 
-        if (bestRadius === 0 || bestArcRatio < .6) continue;
+        if (bestRadius === 0 || bestArcRatio < .42) continue;
 
-        const outsideLight = luminanceAt(x - config.sx * bestRadius * .22, y - config.sy * bestRadius * .22);
+        const outsideLight = luminanceAt(x - config.sx * bestRadius * .18, y - config.sy * bestRadius * .18);
         const insideLight = luminanceAt(x + config.sx * bestRadius * .55, y + config.sy * bestRadius * .55);
-        if (insideLight <= outsideLight) continue;
+        if (insideLight + 10 <= outsideLight) continue;
 
-        const confidence = Number(Math.min(.95, (bestArcRatio * .55 + frameHorizontal * .2 + frameVertical * .2 + Math.min(1, insideLight / 255) * .05)).toFixed(2));
+        const confidence = Number(Math.min(.97, (bestArcRatio * .48 + frameHorizontal * .16 + frameVertical * .16 + hingeDensity * .12 + Math.min(1, insideLight / 255) * .08)).toFixed(2));
         candidates.push({ x, y, confidence, swing: config.swing });
       }
     }
@@ -90,9 +94,9 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
 
   const chosen: typeof candidates = [];
   for (const candidate of candidates.sort((a, b) => b.confidence - a.confidence)) {
-    const duplicate = chosen.some((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) < minRadius * .7);
+    const duplicate = chosen.some((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) < minRadius * .55);
     if (!duplicate) chosen.push(candidate);
-    if (chosen.length >= 8) break;
+    if (chosen.length >= 16) break;
   }
   return chosen.map((candidate) => ({ xRatio: Number((candidate.x / image.width).toFixed(3)), yRatio: Number((candidate.y / image.height).toFixed(3)), swing: candidate.swing, confidence: candidate.confidence }));
 }
@@ -111,7 +115,7 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     return { wall, ratio, distance: Math.hypot(x - px, y - py), wallLength };
   }).filter((candidate) => candidate.wallLength > .85).sort((a, b) => a.distance - b.distance);
   const best = scored[0];
-  if (!best || best.distance > Math.max(.55, Math.min(width, length) * .09)) return undefined;
+  if (!best || best.distance > Math.max(.72, Math.min(width, length) * .12)) return undefined;
   return {
     id: `estimated-door-${index + 1}`,
     wallId: best.wall.id,
@@ -217,7 +221,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   }
 
   const segments: Segment[] = [];
-  const minimumRun = Math.max(3, Math.round(Math.min(columns, rows) * .08));
+  const minimumRun = Math.max(2, Math.round(Math.min(columns, rows) * .05));
   for (let y = 0; y < rows; y++) {
     let start = -1;
     for (let x = 0; x <= columns; x++) {
@@ -237,7 +241,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   for (const segment of segments.sort((a, b) => b.score - a.score)) {
     const duplicate = chosen.some((other) => other.orientation === segment.orientation && Math.abs(other.fixed - segment.fixed) <= 2 && Math.abs(other.start - segment.start) <= 4 && Math.abs(other.end - segment.end) <= 4);
     if (!duplicate) chosen.push(segment);
-    if (chosen.length >= 20) break;
+    if (chosen.length >= 36) break;
   }
 
   const scale = 10 / Math.max(columns, rows);
@@ -286,7 +290,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   const inferredDoors = detectedDoorSymbols
     .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index))
     .filter((door): door is NonNullable<typeof door> => Boolean(door));
-  const dedupedDoors = inferredDoors.filter((door, index, list) => index === list.findIndex((other) => other.wallId === door.wallId && Math.abs(other.positionRatioOnWall - door.positionRatioOnWall) < .12));
+  const dedupedDoors = inferredDoors.filter((door, index, list) => index === list.findIndex((other) => other.wallId === door.wallId && Math.abs(other.positionRatioOnWall - door.positionRatioOnWall) < .07));
   const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
   const doors = dedupedDoors.length ? dedupedDoors : doorWall ? [{
     id: "estimated-entry-door",

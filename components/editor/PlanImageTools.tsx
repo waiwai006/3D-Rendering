@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Crop, Hand, Minus, Plus, ScanLine } from "lucide-react";
 
-export function PlanZoomViewer({ src, alt }: { src: string; alt: string }) {
-  const [zoom, setZoom] = useState(1);
+export function PlanZoomViewer({ src, alt, initialZoom = 1 }: { src: string; alt: string; initialZoom?: number }) {
+  const [zoom, setZoom] = useState(initialZoom);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    setZoom(1);
+    setZoom(initialZoom);
     setFailed(false);
-  }, [src]);
+  }, [src, initialZoom]);
   return <div className="plan-zoom"><div className="zoom-toolbar"><button onClick={() => setZoom((value) => Math.max(.25, value - .25))} aria-label="Zoom out"><Minus size={16} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(6, value + .25))} aria-label="Zoom in"><Plus size={16} /></button></div><div className="zoom-viewport">{failed ? <div className="upload-warning">This floor-plan image could not be loaded here. Please go back, select it again, or upload a local copy.</div> : <img key={src} src={src} alt={alt} style={{ width: `${zoom * 100}%`, imageRendering: "auto" }} referrerPolicy="no-referrer" onError={() => setFailed(true)} />}</div></div>;
 }
 
