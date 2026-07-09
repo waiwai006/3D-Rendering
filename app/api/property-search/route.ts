@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { expandEstateQueries } from "@/lib/estate-aliases";
 import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
-import { buildFloorPlanMatchQuality, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
+import { buildFloorPlanMatchQuality, buildUnitMatchedFields, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
 
@@ -65,10 +65,12 @@ async function candidatesFromEstatePage(url: string, estateName: string, request
     title: `${estateName} floor-plan candidate ${index + 1}`,
     source: "Centaline",
     sourceType: "secondary",
+    sourceVariant: "estate-page",
     sourceUrl: url,
     imageUrl,
     confidence: Number(confidence.toFixed(2)),
     matchedFields,
+    planScope: matchedFields.length > 2 ? "unit" : "estate",
     matchQuality: buildFloorPlanMatchQuality(request, matchedFields, Number(confidence.toFixed(2))),
     requiresVisualConfirmation: true,
   }));
@@ -93,22 +95,31 @@ async function candidatesFromCentalineListings(searchQuery: string, estateName: 
     const pageText = normalizeSourceText(detailHtml.replace(/<[^>]+>/g, " "));
     const detailFields: Array<[string, string | undefined]> = [["tower", request.tower], ["block", request.block], ["floor", request.floor], ["flat", request.flat]];
     const matchedFields = ["estate", ...detailFields.filter(([, value]) => value && pageText.includes(normalizeSourceText(value))).map(([key]) => key)];
-    const confidence = Math.min(.88, .62 + baseScore * .18 + Math.min(.08, (matchedFields.length - 1) * .02));
+    const confidence = Math.min(.9, .64 + baseScore * .18 + Math.min(.1, (matchedFields.length - 1) * .025));
     return extractCentalineFloorPlanImages(detailHtml).slice(0, 4).map((imageUrl, index): FloorPlanCandidate => ({
       id: `centaline-listing-${Buffer.from(`${detailUrl}-${index}`).toString("base64url").slice(0, 18)}`,
       estateName,
       title: `${estateName} listing floor-plan candidate ${index + 1}`,
       source: "Centaline",
       sourceType: "secondary",
+      sourceVariant: "listing-detail",
       sourceUrl: detailUrl,
       imageUrl,
       confidence: Number(confidence.toFixed(2)),
       matchedFields,
+      planScope: matchedFields.length > 1 ? "unit" : "estate",
       matchQuality: buildFloorPlanMatchQuality(request, matchedFields, Number(confidence.toFixed(2))),
       requiresVisualConfirmation: true,
     }));
   }));
   return batches.flat();
+}
+
+function rankCandidate(candidate: FloorPlanCandidate) {
+  const qualityScore = candidate.matchQuality?.score ?? Math.round(candidate.confidence * 100);
+  const sourceBonus = candidate.sourceVariant === "listing-detail" ? 7 : candidate.sourceVariant === "curated-fallback" ? 2 : 0;
+  const scopeBonus = candidate.planScope === "unit" ? 6 : candidate.planScope === "estate" ? 2 : candidate.planScope === "site" ? -18 : -26;
+  return qualityScore + sourceBonus + scopeBonus + candidate.matchedFields.length;
 }
 
 export async function POST(request: Request) {
@@ -152,8 +163,13 @@ export async function POST(request: Request) {
     }));
     const liveCandidates = batches.flat();
     const fallbackCandidates = liveCandidates.length ? [] : curatedFloorPlanCandidates(body);
-    if (fallbackCandidates.length) warnings.push("Live source crawling returned no floor-plan image, so curated public Centaline fallback matches were shown.");
-    const candidates = [...liveCandidates, ...fallbackCandidates].sort((a, b) => b.confidence - a.confidence).slice(0, 12);
+    if (fallbackCandidates.length) warnings.push("Live source crawling returned no unit-level floor-plan image, so curated public Centaline fallback matches were shown.");
+    const candidates = [...liveCandidates, ...fallbackCandidates]
+      .sort((a, b) => rankCandidate(b) - rankCandidate(a) || b.confidence - a.confidence)
+      .slice(0, 12);
+    if (candidates.some((candidate) => candidate.planScope === "site" || candidate.planScope === "amenity")) {
+      warnings.push("Some fallback images are broader site or amenity references, not exact unit floor plans. Prefer unit-level matches when available.");
+    }
     if (!candidates.length) warnings.push("No plan image was found in the accessible Centaline estate pages. Try another spelling, then upload or draw the plan.");
     warnings.push("Agency plans are secondary references. Confirm the tower, flat, orientation and dimensions visually before use.");
     return NextResponse.json({ candidates, searchedSources: ["Centaline public estate index"], warnings, sourceCoverage: SOURCE_COVERAGE } satisfies PropertySearchResponse);
