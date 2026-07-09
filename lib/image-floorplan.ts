@@ -94,9 +94,9 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
 
   const chosen: typeof candidates = [];
   for (const candidate of candidates.sort((a, b) => b.confidence - a.confidence)) {
-    const duplicate = chosen.some((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) < minRadius * .55);
+    const duplicate = chosen.some((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) < minRadius * .95);
     if (!duplicate) chosen.push(candidate);
-    if (chosen.length >= 16) break;
+    if (chosen.length >= 12) break;
   }
   return chosen.map((candidate) => ({ xRatio: Number((candidate.x / image.width).toFixed(3)), yRatio: Number((candidate.y / image.height).toFixed(3)), swing: candidate.swing, confidence: candidate.confidence }));
 }
@@ -123,6 +123,18 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     positionRatioOnWall: Number(best.ratio.toFixed(2)),
     opensTo: ["cropped-plan"],
     swing: symbol.swing,
+  };
+}
+
+function doorCenterPoint(door: ReturnType<typeof nearestWallDoor>, walls: PropertyLayout["walls"]) {
+  if (!door) return undefined;
+  const wall = walls.find((candidate) => candidate.id === door.wallId);
+  if (!wall) return undefined;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  return {
+    x: wall.start.x + dx * door.positionRatioOnWall,
+    y: wall.start.y + dy * door.positionRatioOnWall,
   };
 }
 
@@ -241,7 +253,7 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   for (const segment of segments.sort((a, b) => b.score - a.score)) {
     const duplicate = chosen.some((other) => other.orientation === segment.orientation && Math.abs(other.fixed - segment.fixed) <= 2 && Math.abs(other.start - segment.start) <= 4 && Math.abs(other.end - segment.end) <= 4);
     if (!duplicate) chosen.push(segment);
-    if (chosen.length >= 36) break;
+    if (chosen.length >= 24) break;
   }
 
   const scale = 10 / Math.max(columns, rows);
@@ -290,7 +302,15 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
   const inferredDoors = detectedDoorSymbols
     .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index))
     .filter((door): door is NonNullable<typeof door> => Boolean(door));
-  const dedupedDoors = inferredDoors.filter((door, index, list) => index === list.findIndex((other) => other.wallId === door.wallId && Math.abs(other.positionRatioOnWall - door.positionRatioOnWall) < .07));
+  const dedupedDoors = inferredDoors.filter((door, index, list) => {
+    const center = doorCenterPoint(door, walls);
+    if (!center) return true;
+    return index === list.findIndex((other) => {
+      const otherCenter = doorCenterPoint(other, walls);
+      if (!otherCenter) return false;
+      return Math.hypot(otherCenter.x - center.x, otherCenter.y - center.y) < .75;
+    });
+  });
   const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
   const doors = dedupedDoors.length ? dedupedDoors : doorWall ? [{
     id: "estimated-entry-door",
