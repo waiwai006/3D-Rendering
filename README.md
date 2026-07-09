@@ -1,4 +1,6 @@
-# FlatForm
+# HK Property Design
+
+See [docs/goal-review.md](docs/goal-review.md) for the current product-goal review, gaps, and improvement priorities.
 
 ## Account login and cloud saving
 
@@ -13,7 +15,7 @@ Configure these Auth0 application URLs:
 
 Set the same five environment variables in Netlify, changing `APP_BASE_URL` to `https://hkpropertydesign.netlify.app`. Until all variables are present, browser-local saving remains available and the sign-in control explains that Auth0 setup is required.
 
-FlatForm is a working MVP for reconstructing and exploring a compact Hong Kong flat. It combines a guided project form, an honest provenance/confidence layer, a small manual room editor, browser-local save/load, and a data-driven React Three Fiber viewer.
+HK Property Design is a working browser prototype for reconstructing and exploring a Hong Kong flat. It combines guided property lookup, plan upload/cropping, manual drawing, editable 3D review, furnishing, browser-local save/load, and a data-driven React Three Fiber viewer.
 
 ## Run locally
 
@@ -37,9 +39,11 @@ npm run build
 - Three clear starting paths: property details/public-source lookup, floor-plan upload, or manual drawing.
 - Automatic estate-name matching against Centaline's public estate index, including extracted floor-plan candidate images.
 - Candidate scoring, source attribution, visual review, and an explicit confirmation dialog before a plan can enter the tracing/3D workflow.
+- Match-strength messaging so users can distinguish broader estate-level matches from stronger detail matches.
 - Zoom controls in candidate review before confirmation.
 - English, Traditional Chinese and Simplified Chinese interface modes; Chinese searches query both Centaline Chinese estate indexes.
 - Crop selection on an uploaded/confirmed plan with low-confidence wall-line extraction into editable 3D geometry.
+- A dedicated door/window review step in layout editing so users can remove false detections before moving to 3D.
 - Optional estate, address, tower, block, floor, and flat/unit fields for precise matching.
 - Saleable-area entry and display in either square feet or square metres.
 - Floor-plan image upload with an overlay for manual tracing; PDFs are accepted for reference.

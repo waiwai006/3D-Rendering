@@ -1,8 +1,8 @@
-# FlatForm MVP product specification
+# HK Property Design product specification
 
 ## Product outcome
 
-FlatForm is a browser prototype for recreating a Hong Kong flat as a reviewable, navigable 3D layout. The MVP prioritizes transparent provenance, manual correction, and reliable 3D navigation. It is a planning aid, not a source of construction measurements.
+HK Property Design is a browser prototype for recreating a Hong Kong flat as a reviewable, navigable 3D layout. The current product prioritizes transparent provenance, manual correction, and reliable 3D navigation. It is a planning aid, not a source of construction measurements.
 
 ## Implemented MVP scope
 

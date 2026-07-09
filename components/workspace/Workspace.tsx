@@ -13,7 +13,7 @@ import { FURNISHING_CATALOG, catalogItem, type FurnishingRoomCategory } from "@/
 import { DECOR_STYLES, decorStyleById } from "@/lib/decor-styles";
 import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
 import type { FloorPlanCandidate, PropertySearchResponse, SourceCoverage } from "@/lib/property-search";
-import { isPropertyLayout, ROOM_LABELS, validateLayout, type LayoutWall, type PropertyLayout, type RoomType } from "@/lib/layout-schema";
+import { isPropertyLayout, ROOM_LABELS, validateLayout, type LayoutDoor, type LayoutWall, type LayoutWindow, type PropertyLayout, type RoomType } from "@/lib/layout-schema";
 
 type Step = "details" | "layout" | "explore";
 type StartMode = "address" | "upload" | "draw";
@@ -40,6 +40,34 @@ const ROOM_CATEGORY_LABELS: Record<FurnishingRoomCategory, Record<Language, stri
 type SavedProjectSummary = { id: string; name: string; planName?: string; updatedAt: string };
 type PersistedProject = { layout?: unknown; planName?: string; projectName?: string; referencePlanUrl?: string };
 
+function candidateStrength(candidate: FloorPlanCandidate) {
+  if (candidate.matchQuality?.score !== undefined) {
+    if (candidate.matchQuality.score >= 82) return "strong";
+    if (candidate.matchQuality.score >= 72 || candidate.matchQuality.matched.length >= 2) return "medium";
+    return "broad";
+  }
+  if (candidate.confidence >= .82 || candidate.matchedFields.length >= 4) return "strong";
+  if (candidate.confidence >= .72 || candidate.matchedFields.length >= 2) return "medium";
+  return "broad";
+}
+
+function candidateStrengthLabel(candidate: FloorPlanCandidate, language: Language) {
+  const strength = candidateStrength(candidate);
+  if (language === "zh-Hant") return strength === "strong" ? "較高匹配" : strength === "medium" ? "中等匹配" : "屋苑級匹配";
+  if (language === "zh-Hans") return strength === "strong" ? "较高匹配" : strength === "medium" ? "中等匹配" : "小区级匹配";
+  return strength === "strong" ? "Higher-confidence match" : strength === "medium" ? "Partial match" : "Estate-level match";
+}
+
+function missingDetailFields(candidate: FloorPlanCandidate, layout: PropertyLayout) {
+  if (candidate.matchQuality) return candidate.matchQuality.missing;
+  return ([
+    ["tower", layout.unit.tower],
+    ["block", layout.unit.block],
+    ["floor", layout.unit.floor],
+    ["flat", layout.unit.flat],
+  ] as const).filter(([key, value]) => value && !candidate.matchedFields.includes(key)).map(([key]) => key);
+}
+
 function cloneSample(): PropertyLayout {
   return JSON.parse(JSON.stringify(sampleLayout)) as PropertyLayout;
 }
@@ -59,6 +87,20 @@ function projectStorageKey(id: string) {
 
 function projectDisplayName(layout: PropertyLayout, planName?: string) {
   return layout.property.name || planName || `Floor plan ${new Date().toLocaleDateString()}`;
+}
+
+function wallLengthMeters(wall?: LayoutWall) {
+  if (!wall) return 0;
+  return Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+}
+
+function openingFitWarning(wall: LayoutWall | undefined, widthMeters: number, ratio: number) {
+  const length = wallLengthMeters(wall);
+  if (!wall) return "Referenced wall is missing.";
+  if (widthMeters <= 0 || widthMeters > length) return "Width does not fit on this wall.";
+  const halfRatio = length > 0 ? widthMeters / length / 2 : 0;
+  if (ratio - halfRatio < 0 || ratio + halfRatio > 1) return "Move it away from the wall end, or reduce the width.";
+  return undefined;
 }
 
 async function persistReferencePlan(referencePlanUrl?: string) {
@@ -102,6 +144,7 @@ export function Workspace() {
   const [movingWallId, setMovingWallId] = useState<string>();
   const [wallStart, setWallStart] = useState<{ roomId: string; x: number; y: number }>();
   const [wallMode, setWallMode] = useState(false);
+  const [openingsReviewed, setOpeningsReviewed] = useState(false);
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [authConfigured, setAuthConfigured] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
@@ -226,6 +269,18 @@ export function Workspace() {
     setNotice(`${decorStyleById(styleId).name} style applied. The preview now updates materials, lighting and built-in flat details in addition to furniture cues.`);
   };
 
+  const markOpeningsReviewed = () => {
+    setOpeningsReviewed(true);
+    setNotice("Door/window review marked complete. Continue to 3D only after confirming each opening visually.");
+  };
+
+  const clearAllOpenings = () => {
+    setLayout((current) => ({ ...current, doors: [], windows: [] }));
+    setOpeningsReviewed(false);
+    setSelectedWallId(undefined);
+    setNotice("All detected doors and windows were cleared. Re-add only the openings you trust.");
+  };
+
   const updateRoom = (key: "name" | "type", value: string) => setLayout((current) => ({
     ...current,
     rooms: current.rooms.map((room) => room.id !== selectedRoom.id ? room : key === "name" ? { ...room, name: value } : { ...room, type: value as RoomType }),
@@ -267,6 +322,7 @@ export function Workspace() {
       windows: current.windows.filter((window) => window.wallId !== wallId),
     }));
     setSelectedWallId(undefined);
+    setOpeningsReviewed(false);
   };
 
   const moveWall = (wallId: string, delta: { x: number; y: number }) => {
@@ -316,21 +372,129 @@ export function Workspace() {
     }
     if (kind === "door") {
       setLayout((current) => ({ ...current, doors: [...current.doors, { id: `door-${Date.now()}`, wallId: selectedWall.id, widthMeters: Math.min(.9, length * .65), positionRatioOnWall: .5, opensTo: selectedRoom ? [selectedRoom.id] : [] }] }));
+      setOpeningsReviewed(false);
       setNotice("Door added to the selected wall. Click the wall again if you want to remove or add more openings.");
       return;
     }
     setLayout((current) => ({ ...current, windows: [...current.windows, { id: `window-${Date.now()}`, wallId: selectedWall.id, widthMeters: Math.min(1.4, length * .55), heightMeters: 1.05, positionRatioOnWall: .5, sillHeightMeters: .9 }] }));
+    setOpeningsReviewed(false);
     setNotice("Window added to the selected wall.");
   };
 
   const removeOpening = (kind: "door" | "window", openingId: string) => {
     if (kind === "door") {
       setLayout((current) => ({ ...current, doors: current.doors.filter((door) => door.id !== openingId) }));
+      setOpeningsReviewed(false);
       setNotice("Door removed from the selected wall.");
       return;
     }
     setLayout((current) => ({ ...current, windows: current.windows.filter((window) => window.id !== openingId) }));
+    setOpeningsReviewed(false);
     setNotice("Window removed from the selected wall.");
+  };
+
+  const updateDoorOpening = (openingId: string, patch: Partial<Pick<LayoutDoor, "widthMeters" | "positionRatioOnWall">>) => {
+    setOpeningsReviewed(false);
+    setLayout((current) => ({
+      ...current,
+      doors: current.doors.map((door) => door.id === openingId ? { ...door, ...patch } : door),
+    }));
+  };
+
+  const updateWindowOpening = (openingId: string, patch: Partial<Pick<LayoutWindow, "widthMeters" | "heightMeters" | "positionRatioOnWall" | "sillHeightMeters">>) => {
+    setOpeningsReviewed(false);
+    setLayout((current) => ({
+      ...current,
+      windows: current.windows.map((window) => window.id === openingId ? { ...window, ...patch } : window),
+    }));
+  };
+
+  const openingRangeMax = (wall?: LayoutWall) => Math.max(.1, Number(wallLengthMeters(wall).toFixed(2)));
+  const renderOpeningControls = (variant: "compact" | "full" = "compact") => {
+    if (!selectedWall) return null;
+    const controls = [
+      ...selectedWallDoors.map((door, index) => {
+        const warning = openingFitWarning(selectedWall, door.widthMeters, door.positionRatioOnWall);
+        return (
+          <div key={door.id} className={`opening-adjust${variant === "full" ? " full" : ""}`}>
+            <strong>{`Door ${index + 1}`}</strong>
+            <label>Position on wall
+              <input
+                type="range"
+                min=".05"
+                max=".95"
+                step=".01"
+                value={door.positionRatioOnWall}
+                onChange={(event) => updateDoorOpening(door.id, { positionRatioOnWall: Number(event.target.value) })}
+              />
+            </label>
+            <label>Width (m)
+              <input
+                type="number"
+                min=".3"
+                max={openingRangeMax(selectedWall)}
+                step=".01"
+                value={door.widthMeters}
+                onChange={(event) => updateDoorOpening(door.id, { widthMeters: Number(event.target.value) })}
+              />
+            </label>
+            {warning && <p className="small-note">{warning}</p>}
+          </div>
+        );
+      }),
+      ...selectedWallWindows.map((window, index) => {
+        const warning = openingFitWarning(selectedWall, window.widthMeters, window.positionRatioOnWall);
+        return (
+          <div key={window.id} className={`opening-adjust${variant === "full" ? " full" : ""}`}>
+            <strong>{`Window ${index + 1}`}</strong>
+            <label>Position on wall
+              <input
+                type="range"
+                min=".05"
+                max=".95"
+                step=".01"
+                value={window.positionRatioOnWall}
+                onChange={(event) => updateWindowOpening(window.id, { positionRatioOnWall: Number(event.target.value) })}
+              />
+            </label>
+            <label>Width (m)
+              <input
+                type="number"
+                min=".3"
+                max={openingRangeMax(selectedWall)}
+                step=".01"
+                value={window.widthMeters}
+                onChange={(event) => updateWindowOpening(window.id, { widthMeters: Number(event.target.value) })}
+              />
+            </label>
+            {variant === "full" && <>
+              <label>Window height (m)
+                <input
+                  type="number"
+                  min=".3"
+                  max="2.5"
+                  step=".01"
+                  value={window.heightMeters}
+                  onChange={(event) => updateWindowOpening(window.id, { heightMeters: Number(event.target.value) })}
+                />
+              </label>
+              <label>Sill height (m)
+                <input
+                  type="number"
+                  min="0"
+                  max="2"
+                  step=".01"
+                  value={window.sillHeightMeters ?? .9}
+                  onChange={(event) => updateWindowOpening(window.id, { sillHeightMeters: Number(event.target.value) })}
+                />
+              </label>
+            </>}
+            {warning && <p className="small-note">{warning}</p>}
+          </div>
+        );
+      }),
+    ];
+    return controls.length ? <div className={`opening-adjust-list ${variant}`}>{controls}</div> : null;
   };
 
   const drawWall = (_roomId: string, start: { x: number; y: number }, end: { x: number; y: number }) => {
@@ -344,6 +508,7 @@ export function Workspace() {
     setSelectedWallId(wall.id);
     setWallMode(false);
     setWallStart(undefined);
+    setOpeningsReviewed(false);
     setNotice("Wall created from your drag. Click it any time to select and remove it.");
   };
 
@@ -405,6 +570,7 @@ export function Workspace() {
     setPlanName(candidate.title);
     setPlanPreviewUrl(undefined);
     setReferencePlanUrl(undefined);
+    setOpeningsReviewed(false);
     setCropperRevision((value) => value + 1);
     const useDirectImage = STATIC_EXPORT || candidate.id.startsWith("centaline-curated");
     const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(candidate.imageUrl)}&candidate=${encodeURIComponent(candidate.id)}&v=${Date.now()}`;
@@ -426,6 +592,7 @@ export function Workspace() {
       setSelectedRoomId(estimated.rooms[0].id);
       setPlanPreviewUrl(dataUrl);
       setReferencePlanUrl(dataUrl);
+      setOpeningsReviewed(false);
       setCropperRevision((value) => value + 1);
       setStep("layout");
       setNotice("A low-confidence 3D estimate was created from the selected image area. Correct its scale, walls and openings before relying on it.");
@@ -461,6 +628,7 @@ export function Workspace() {
     const manual = buildManualLayout(rooms, layout);
     setLayout(manual);
     setSelectedRoomId(manual.rooms[0]?.id ?? "");
+    setOpeningsReviewed(false);
     setStep("layout");
     setNotice(planName ? `Traced layout created from ${planName}. Please verify every measurement.` : "Manual layout created. Please verify every measurement.");
   };
@@ -563,6 +731,7 @@ export function Workspace() {
     const fresh = cloneSample();
     setLayout(fresh);
     setSelectedRoomId("living");
+    setOpeningsReviewed(false);
     setNotice("Demo layout restored.");
   };
 
@@ -722,12 +891,15 @@ export function Workspace() {
             {searchState === "idle" && <div className="lookup-result"><ShieldCheck size={19} /><div><strong>Automatic source matching</strong><p>HK Property Design searches accessible estate indexes and floor-plan metadata. Official SRPE remains the highest-authority source; agency plans are marked secondary.</p><div className="lookup-links"><a href="https://www.srpe.gov.hk/opip/" target="_blank" rel="noreferrer">SRPE official database</a><a href="https://www.bd.gov.hk/en/resources/online-tools/BRAVO-online-building-records/index.html" target="_blank" rel="noreferrer">Older buildings: BRAVO</a></div></div></div>}
             {searchState === "done" && <div className="search-results">
               <div className="results-heading"><div><strong>{candidates.length ? `${candidates.length} candidate plan${candidates.length === 1 ? "" : "s"} found` : "No matching plan found"}</strong><span>{language === "en" ? "Review the image—estate-level results may contain several unit types." : language === "zh-Hant" ? "請檢視圖片，屋苑級結果可能包含多種單位類型。" : "请检查图片，小区级结果可能包含多种户型。"}</span></div><button className="button ghost small" onClick={searchPublicSources}><RotateCcw size={14} /> Search again</button></div>
-              {candidates.length > 0 && <div className="candidate-grid">{candidates.map((candidate) => <article className="candidate-card" key={candidate.id}><div className="candidate-image"><img src={candidate.imageUrl} alt={`${candidate.estateName} floor-plan candidate`} referrerPolicy="no-referrer" /></div><div className="candidate-body"><div className="candidate-meta"><span>{candidate.source}</span></div><h3>{candidate.title}</h3><p>Matched: {candidate.matchedFields.join(", ")}. Visual confirmation required.</p><div className="candidate-actions"><a href={candidate.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Source</a><button className="button primary small" onClick={() => setPendingCandidate(candidate)}>Review this plan</button></div></div></article>)}</div>}
+              {candidates.length > 0 && <div className="candidate-grid">{candidates.map((candidate) => {
+                const missingFields = missingDetailFields(candidate, layout);
+                return <article className="candidate-card" key={candidate.id}><div className="candidate-image"><img src={candidate.imageUrl} alt={`${candidate.estateName} floor-plan candidate`} referrerPolicy="no-referrer" /></div><div className="candidate-body"><div className="candidate-meta"><span>{candidate.source}</span><span>{candidateStrengthLabel(candidate, language)}</span></div><h3>{candidate.title}</h3><p>{language === "en" ? `Matched: ${candidate.matchedFields.join(", ")}.` : language === "zh-Hant" ? `已匹配：${candidate.matchedFields.join("、")}。` : `已匹配：${candidate.matchedFields.join("、")}。`} {missingFields.length ? (language === "en" ? `Still verify ${missingFields.join(", ")} visually.` : language === "zh-Hant" ? `仍需目視確認 ${missingFields.join("、")}。` : `仍需目视确认 ${missingFields.join("、")}。`) : (language === "en" ? "Visual confirmation still required." : language === "zh-Hant" ? "仍需目視確認。" : "仍需目视确认。")}</p><div className="candidate-actions"><a href={candidate.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Source</a><button className="button primary small" onClick={() => setPendingCandidate(candidate)}>Review this plan</button></div></div></article>;
+              })}</div>}
               {searchWarnings.map((warning) => <p className="search-warning" key={warning}>{warning}</p>)}
               {sourceCoverage.length > 0 && <details className="source-coverage"><summary>{language === "en" ? "Source coverage" : language === "zh-Hant" ? "來源覆蓋" : "来源覆盖"} · {sourceCoverage.filter((source) => source.status === "searched").length} {language === "en" ? "automatic" : language === "zh-Hant" ? "自動" : "自动"}, {sourceCoverage.length - sourceCoverage.filter((source) => source.status === "searched").length} {language === "en" ? "reference sources" : language === "zh-Hant" ? "參考來源" : "参考来源"}</summary><div>{sourceCoverage.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.name}><span className={`coverage-status ${source.status}`}>{source.status === "searched" ? (language === "en" ? "Searched" : language === "zh-Hant" ? "已搜尋" : "已搜索") : source.status === "limited" ? (language === "en" ? "Limited" : language === "zh-Hant" ? "有限" : "有限") : (language === "en" ? "Manual" : language === "zh-Hant" ? "手動" : "手动")}</span><strong>{source.name}</strong><small>{source.note}</small><ExternalLink size={13} /></a>)}</div></details>}
               <div className="fallback-row"><span>{candidates.length ? "None of these match?" : "Continue without a public match"}</span><button onClick={() => setMode("upload")}>Upload a plan</button><button onClick={() => setMode("draw")}>Draw it manually</button></div>
             </div>}
-            {pendingCandidate && <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm floor plan"><div className="confirm-dialog"><button className="dialog-close" aria-label="Close confirmation" onClick={() => setPendingCandidate(undefined)}><X size={18} /></button><p className="eyebrow">Confirm before 3D use</p><h2>Does this plan match your property?</h2><PlanZoomViewer src={pendingCandidate.imageUrl} alt={`${pendingCandidate.estateName} plan for confirmation`} /><div className="confirm-facts"><span><strong>Estate</strong>{pendingCandidate.estateName}</span><span><strong>Source</strong>{`${pendingCandidate.source} · ${language === "en" ? "secondary" : language === "zh-Hant" ? "次要來源" : "次要来源"}`}</span><span><strong>Matched</strong>{pendingCandidate.matchedFields.join(", ")}</span></div><p>Zoom in and check tower/block, flat and orientation. Confirmation uses this image as a tracing reference; it does not make the source official.</p><div className="dialog-actions"><button className="button ghost" onClick={() => setPendingCandidate(undefined)}>No, choose another</button><button className="button primary" onClick={() => confirmCandidate(pendingCandidate)}><Check size={16} /> Yes, use this plan</button></div></div></div>}
+            {pendingCandidate && <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm floor plan"><div className="confirm-dialog"><button className="dialog-close" aria-label="Close confirmation" onClick={() => setPendingCandidate(undefined)}><X size={18} /></button><p className="eyebrow">Confirm before 3D use</p><h2>Does this plan match your property?</h2><PlanZoomViewer src={pendingCandidate.imageUrl} alt={`${pendingCandidate.estateName} plan for confirmation`} /><div className="confirm-facts"><span><strong>Estate</strong>{pendingCandidate.estateName}</span><span><strong>Source</strong>{`${pendingCandidate.source} · ${language === "en" ? "secondary" : language === "zh-Hant" ? "次要來源" : "次要来源"}`}</span><span><strong>Matched</strong>{pendingCandidate.matchedFields.join(", ")}</span></div><p>{candidateStrengthLabel(pendingCandidate, language)}. {language === "en" ? "Zoom in and check tower/block, flat and orientation. Confirmation uses this image as a tracing reference; it does not make the source official." : language === "zh-Hant" ? "請放大檢查座數、座號、樓層、單位及方向。確認後只會把此圖作為描圖參考，並不代表官方來源。" : "请放大检查座数、座号、楼层、单位及方向。确认后只会把此图作为描图参考，并不代表官方来源。"}</p><div className="dialog-actions"><button className="button ghost" onClick={() => setPendingCandidate(undefined)}>No, choose another</button><button className="button primary" onClick={() => confirmCandidate(pendingCandidate)}><Check size={16} /> Yes, use this plan</button></div></div></div>}
           </div>}
 
           {mode === "upload" && <div className="card upload-workspace"><div className="card-heading"><span className="icon-tile cool"><Upload size={20} /></span><div><h2>Upload, crop or trace a floor plan</h2><p>The file stays in this browser. Image analysis produces an estimate, not construction geometry.</p></div></div><label className="drop-zone plan-upload"><Upload size={25} /><strong>{planName ?? "Choose a floor-plan image or PDF"}</strong><span>PNG, JPEG, WEBP or PDF</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => handlePlanUpload(event.target.files?.[0])} /></label>{planName && !planPreviewUrl && <p className="upload-warning">Loading selected floor plan...</p>}{planPreviewUrl && <><PlanZoomViewer src={planPreviewUrl} alt={`${planName ?? "Selected"} floor plan`} />{remotePlanPreview && <p className="upload-warning">This public fallback is loaded directly from the agency source. Pan/Crop is available below; if the browser blocks automatic image analysis, upload a saved copy or trace it manually.</p>}<FloorPlanCropper key={`crop-${cropperRevision}-${planPreviewUrl}`} src={planPreviewUrl} onAnalyze={analyzeCrop} onAnalyzeError={setNotice} /><div className="tool-divider"><span>or trace rooms manually</span></div></>}<ManualFloorPlan key={`manual-${cropperRevision}-${planPreviewUrl ?? "blank"}`} overlayUrl={planPreviewUrl} onUse={useDrawnPlan} /></div>}
@@ -740,12 +912,13 @@ export function Workspace() {
         <section className="workspace-page">
           <div className="workspace-heading"><div><p className="eyebrow">Review before generating</p><h1>Confirm the rooms and measurements</h1><p>Select a room to rename, classify or resize it. The preview updates immediately.</p></div><div className="heading-actions"><button className="button ghost" onClick={() => setStep("details")}><ArrowLeft size={16} /> Back</button><button className="button ghost" onClick={() => setStep("details")}><PenTool size={16} /> Redraw</button><button className="button ghost" onClick={reset}><RotateCcw size={16} /> Use demo</button></div></div>
           {referencePlanUrl && <details className="reference-plan-panel" open><summary>Selected cropped floor plan</summary><p>This shows the cropped or selected plan image used to create the current layout.</p><PlanZoomViewer src={referencePlanUrl} alt={`${planName ?? "Selected"} floor plan`} initialZoom={.5} /></details>}
+          {selectedWallId && <details className="reference-plan-panel opening-correction-panel" open><summary>Correct selected wall doors/windows</summary><p>Fine-tune auto-detected openings before using the 3D view. The sliders move openings along the selected wall; width checks warn when an opening no longer fits.</p>{renderOpeningControls("full") ?? <p className="small-note">This wall has no doors or windows yet. Add one from the wall tools below.</p>}</details>}
           <div className="editor-grid">
             <aside className="card room-list"><div className="section-label">Rooms · {layout.rooms.length}</div>{layout.rooms.map((room) => <button key={room.id} className={room.id === selectedRoom.id ? "selected" : ""} onClick={() => setSelectedRoomId(room.id)}><span className={`room-dot ${room.type}`} /><span><strong>{room.name}</strong><small>{room.dimensions.widthMeters.toFixed(1)} × {room.dimensions.lengthMeters.toFixed(1)} m</small></span><ChevronRight size={16} /></button>)}</aside>
-            <div className="card room-editor"><div className="card-heading"><div><p className="section-label">Selected room</p><h2>{selectedRoom.name}</h2></div></div><label>Room name<input value={selectedRoom.name} onChange={(event) => updateRoom("name", event.target.value)} /></label><label>Room type<select value={selectedRoom.type} onChange={(event) => updateRoom("type", event.target.value)}>{Object.entries(ROOM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="split-fields"><label>Width (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.widthMeters} onChange={(event) => updateRoomDimension("widthMeters", event.target.value)} /></label><label>Length (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.lengthMeters} onChange={(event) => updateRoomDimension("lengthMeters", event.target.value)} /></label></div><div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">{wallStart ? "Wall start set. Click another point to finish." : "Click once to start, click again to finish, or drag on the preview floor."}</p>}<select value={selectedWallId ?? ""} onChange={(event) => setSelectedWallId(event.target.value || undefined)}><option value="">Select a wall...</option>{layout.walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>)}</select><div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div>{selectedWallId && (selectedWallDoors.length > 0 || selectedWallWindows.length > 0) && <div className="opening-list">{selectedWallDoors.map((door, index) => <div key={door.id} className="opening-row"><span>{`Door ${index + 1}`}</span><button className="button ghost small danger" onClick={() => removeOpening("door", door.id)}><Trash2 size={14} /> Remove</button></div>)}{selectedWallWindows.map((window, index) => <div key={window.id} className="opening-row"><span>{`Window ${index + 1}`}</span><button className="button ghost small danger" onClick={() => removeOpening("window", window.id)}><Trash2 size={14} /> Remove</button></div>)}</div>}<button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><p className="small-note">Room size changes, wall selection and openings update the preview immediately.</p></div>
+            <div className="card room-editor"><div className="card-heading"><div><p className="section-label">Selected room</p><h2>{selectedRoom.name}</h2></div></div><label>Room name<input value={selectedRoom.name} onChange={(event) => updateRoom("name", event.target.value)} /></label><label>Room type<select value={selectedRoom.type} onChange={(event) => updateRoom("type", event.target.value)}>{Object.entries(ROOM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="split-fields"><label>Width (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.widthMeters} onChange={(event) => updateRoomDimension("widthMeters", event.target.value)} /></label><label>Length (m)<input type="number" min=".1" step=".1" value={selectedRoom.dimensions.lengthMeters} onChange={(event) => updateRoomDimension("lengthMeters", event.target.value)} /></label></div><div className="wall-tools"><div><strong>3D walls, doors & windows</strong><span>Click an existing wall to select it. Turn on Create wall, then drag on the floor to draw a new wall.</span></div><button className={`button ghost small ${wallMode ? "active" : ""}`} onClick={() => { setPendingCatalogId(undefined); setWallStart(undefined); setWallMode(!wallMode); }}><Plus size={14} /> {wallMode ? "Cancel wall" : "Create wall"}</button>{wallMode && <p className="small-note">{wallStart ? "Wall start set. Click another point to finish." : "Click once to start, click again to finish, or drag on the preview floor."}</p>}<select value={selectedWallId ?? ""} onChange={(event) => setSelectedWallId(event.target.value || undefined)}><option value="">Select a wall...</option>{layout.walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>)}</select><div className="edge-buttons"><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("door")}><Plus size={14} /> Add door</button><button className="button ghost small" disabled={!selectedWallId} onClick={() => addOpening("window")}><Plus size={14} /> Add window</button></div>{selectedWallId && (selectedWallDoors.length > 0 || selectedWallWindows.length > 0) && <div className="opening-list">{selectedWallDoors.map((door, index) => <div key={door.id} className="opening-row"><span>{`Door ${index + 1}`}</span><button className="button ghost small danger" onClick={() => removeOpening("door", door.id)}><Trash2 size={14} /> Remove</button></div>)}{selectedWallWindows.map((window, index) => <div key={window.id} className="opening-row"><span>{`Window ${index + 1}`}</span><button className="button ghost small danger" onClick={() => removeOpening("window", window.id)}><Trash2 size={14} /> Remove</button></div>)}</div>}<button className="button ghost small danger" disabled={!selectedWallId} onClick={() => selectedWallId && removeWall(selectedWallId)}><Trash2 size={14} /> Remove selected wall</button></div><div className="wall-tools"><div><strong>Door / window review</strong><span>{openingsReviewed ? "Marked reviewed. Re-check whenever you add or remove an opening." : "Review every detected opening before moving to 3D. Remove false positives, then add back any missing ones."}</span></div><div className="opening-list all-openings">{openingItems.length ? openingItems.map((opening) => <div key={opening.id} className="opening-row"><button className={`opening-link${selectedWallId === opening.wallId ? " active" : ""}`} onClick={() => setSelectedWallId(opening.wallId)}>{opening.label} · {opening.wallId}</button><button className="button ghost small danger" onClick={() => removeOpening(opening.kind, opening.id)}><Trash2 size={14} /> Remove</button></div>) : <span className="small-note">No openings are currently in this layout.</span>}</div><div className="edge-buttons"><button className="button ghost small" disabled={!openingItems.length} onClick={markOpeningsReviewed}><Check size={14} /> Mark review complete</button><button className="button ghost small danger" disabled={!openingItems.length} onClick={clearAllOpenings}><Trash2 size={14} /> Clear all openings</button></div></div><p className="small-note">Room size changes, wall selection and openings update the preview immediately.</p></div>
             <div className="card mini-preview"><PropertyViewer layout={layout} selectedRoomId={selectedRoom.id} onSelectRoom={setSelectedRoomId} onFloorPoint={wallMode ? handleWallPoint : undefined} onWallDraw={wallMode ? drawWall : undefined} selectedWallId={selectedWallId} onSelectWall={(id) => { setSelectedFurnishingId(undefined); setSelectedWallId(id); }} onWallMove={moveWall} /></div>
           </div>
-          <div className="bottom-action"><span>{savedAt ? `Last saved at ${savedAt}` : "Changes are not saved yet"}</span><button className="button primary" onClick={() => setStep("explore")}>Generate 3D view <ChevronRight size={17} /></button></div>
+          <div className="bottom-action"><span>{openingsReviewed ? (savedAt ? `Last saved at ${savedAt}` : "Opening review complete · changes are not saved yet") : "Please review doors/windows before moving to 3D."}</span><button className="button primary" onClick={() => setStep("explore")}>Generate 3D view <ChevronRight size={17} /></button></div>
         </section>
       )}
 

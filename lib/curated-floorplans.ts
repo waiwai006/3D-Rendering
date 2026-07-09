@@ -1,4 +1,4 @@
-import type { FloorPlanCandidate, PropertySearchRequest } from "./property-search";
+import { buildFloorPlanMatchQuality, type FloorPlanCandidate, type PropertySearchRequest } from "./property-search";
 import { expandEstateQueries } from "./estate-aliases";
 import { normalizeSourceText } from "./source-match";
 
@@ -62,6 +62,7 @@ export function curatedFloorPlanCandidates(request: PropertySearchRequest): Floo
     imageUrl,
     confidence: .72,
     matchedFields,
+    matchQuality: buildFloorPlanMatchQuality(request, matchedFields, .72),
     requiresVisualConfirmation: true,
   }));
 }

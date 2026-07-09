@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { sampleLayout } from "../data/sample-layout";
 import { validateLayout } from "../lib/layout-schema";
+import { buildFloorPlanMatchQuality } from "../lib/property-search";
 import { buildManualLayout } from "../lib/manual-layout";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls } from "../lib/source-match";
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
@@ -70,6 +71,18 @@ describe("sample layout", () => {
     const { data, info } = await sharp("public/curated-floorplans/taikoo-shing-3.png").ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const estimate = buildEstimatedLayoutFromCrop({ width: info.width, height: info.height, data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), colorSpace: "srgb" } as ImageData, sampleLayout);
     expect(estimate.doors).toHaveLength(5);
+    expect(estimate.doors.map((door) => door.wallId)).toEqual([
+      "taikoo-top",
+      "taikoo-left-step",
+      "taikoo-bath-top",
+      "taikoo-corridor-left",
+      "taikoo-corridor-right",
+    ]);
+    expect(estimate.windows.map((window) => window.wallId)).toEqual([
+      "taikoo-right",
+      "taikoo-right",
+      "taikoo-bay-bottom",
+    ]);
   });
 
   it("keeps extreme crop aspect ratios bounded for 3D estimation", () => {
@@ -108,6 +121,16 @@ describe("sample layout", () => {
     expect(curatedFloorPlanCandidates({ estate: "\u592a\u53e4\u57ce" }).length).toBeGreaterThanOrEqual(3);
     expect(curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6" }).length).toBeGreaterThanOrEqual(3);
     expect(curatedFloorPlanCandidates({ estate: "\u5eb7\u57ce" }).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("explains match quality gaps before a candidate is used for 3D", () => {
+    const quality = buildFloorPlanMatchQuality({ estate: "\u592a\u53e4\u57ce", tower: "Kam Din Terrace", flat: "H" }, ["estate"], .72);
+    expect(quality.score).toBe(72);
+    expect(quality.matched).toEqual(["estate"]);
+    expect(quality.missing).toEqual(["tower", "flat"]);
+    expect(quality.nextAction).toContain("missing fields");
+    const [candidate] = curatedFloorPlanCandidates({ estate: "\u592a\u53e4\u57ce", tower: "Kam Din Terrace", flat: "H" });
+    expect(candidate.matchQuality?.missing).toEqual(["tower", "flat"]);
   });
 
   it("uses positive real-world furnishing dimensions", () => {

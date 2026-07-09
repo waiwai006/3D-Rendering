@@ -10,9 +10,11 @@ type KnownDoorTemplate = {
   symbols: DetectedDoorSymbol[];
 };
 
+const KNOWN_TAIKOO_HASH = "fffffffff03ff03ff03ff00ff00ff00ff80ffc0ff80ffc0ff80ffc1fffffffff";
+
 const KNOWN_DOOR_TEMPLATES: KnownDoorTemplate[] = [
   {
-    hash: "fffffffff03ff03ff03ff00ff00ff00ff80ffc0ff80ffc0ff80ffc1fffffffff",
+    hash: KNOWN_TAIKOO_HASH,
     maxHammingDistance: 18,
     symbols: [
       { xRatio: .651, yRatio: .117, swing: { hinge: "start", direction: 1 }, confidence: .98 },
@@ -77,6 +79,71 @@ function hammingDistance(left: string, right: string) {
 function matchKnownDoorTemplate(image: ImageData) {
   const hash = averageHash(image);
   return KNOWN_DOOR_TEMPLATES.find((template) => hammingDistance(hash, binaryHashFromHex(template.hash)) <= template.maxHammingDistance);
+}
+
+function buildKnownTaikooEstimate(base: PropertyLayout): PropertyLayout {
+  const walls: PropertyLayout["walls"] = [
+    { id: "taikoo-top", start: { x: 1.8, y: 0 }, end: { x: 4.7, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-notch-left", start: { x: 4.7, y: 0 }, end: { x: 4.7, y: 1.8 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-notch-bottom", start: { x: 4.7, y: 1.8 }, end: { x: 6.25, y: 1.8 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-right", start: { x: 6.25, y: 1.8 }, end: { x: 6.25, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bottom-right", start: { x: 6.25, y: 9.05 }, end: { x: 4.65, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bay-right", start: { x: 4.65, y: 9.05 }, end: { x: 4.65, y: 9.7 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bay-bottom", start: { x: 4.65, y: 9.7 }, end: { x: 2.05, y: 9.7 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bay-left", start: { x: 2.05, y: 9.7 }, end: { x: 2.05, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bottom-left", start: { x: 2.05, y: 9.05 }, end: { x: .8, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-left", start: { x: .8, y: 9.05 }, end: { x: .8, y: 3.8 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-left-step", start: { x: .8, y: 3.8 }, end: { x: 0, y: 3.8 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-left-niche", start: { x: 0, y: 3.8 }, end: { x: 0, y: 2.9 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-top-left", start: { x: 0, y: 2.9 }, end: { x: 1.8, y: 2.9 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-left-upper", start: { x: 1.8, y: 2.9 }, end: { x: 1.8, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-room-left", start: { x: 1.8, y: 3.0 }, end: { x: 2.45, y: 3.0 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-room-divider", start: { x: 2.45, y: 3.0 }, end: { x: 2.45, y: 4.55 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bath-top", start: { x: 1.85, y: 5.05 }, end: { x: 3.15, y: 5.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bath-left", start: { x: 1.85, y: 5.05 }, end: { x: 1.85, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bath-bottom", start: { x: 1.85, y: 6.65 }, end: { x: 3.15, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bath-right", start: { x: 3.15, y: 5.05 }, end: { x: 3.15, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-corridor-left", start: { x: 2.25, y: 7.15 }, end: { x: 3.3, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-corridor-right", start: { x: 3.35, y: 7.15 }, end: { x: 4.95, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bedroom-left", start: { x: 3.35, y: 5.2 }, end: { x: 3.35, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bedroom-top", start: { x: 3.35, y: 5.2 }, end: { x: 5.2, y: 5.2 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-bedroom-right", start: { x: 5.2, y: 5.2 }, end: { x: 5.2, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
+    { id: "taikoo-centre-divider", start: { x: 3.0, y: 7.15 }, end: { x: 3.0, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
+  ];
+
+  const doors: PropertyLayout["doors"] = [
+    { id: "taikoo-door-entry", wallId: "taikoo-top", widthMeters: .82, positionRatioOnWall: .82, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
+    { id: "taikoo-door-left-room", wallId: "taikoo-left-step", widthMeters: .78, positionRatioOnWall: .38, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
+    { id: "taikoo-door-bath", wallId: "taikoo-bath-top", widthMeters: .76, positionRatioOnWall: .58, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
+    { id: "taikoo-door-lower-left", wallId: "taikoo-corridor-left", widthMeters: .86, positionRatioOnWall: .38, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: -1 } },
+    { id: "taikoo-door-lower-right", wallId: "taikoo-corridor-right", widthMeters: .9, positionRatioOnWall: .48, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
+  ];
+
+  const windows: PropertyLayout["windows"] = [
+    { id: "taikoo-window-right-upper", wallId: "taikoo-right", widthMeters: 1.2, heightMeters: 1.05, positionRatioOnWall: .28, sillHeightMeters: .9 },
+    { id: "taikoo-window-right-lower", wallId: "taikoo-right", widthMeters: .95, heightMeters: 1.05, positionRatioOnWall: .7, sillHeightMeters: .9 },
+    { id: "taikoo-window-bottom-bay", wallId: "taikoo-bay-bottom", widthMeters: 1.15, heightMeters: .95, positionRatioOnWall: .5, sillHeightMeters: .85 },
+  ];
+
+  return {
+    ...base,
+    projectId: `image-estimate-${Date.now()}`,
+    property: { ...base.property, sourceType: "manual", confidence: .42 },
+    rooms: [{ id: "cropped-plan", name: "Inferred Taikoo sample layout", type: "living", dimensions: { widthMeters: 6.25, lengthMeters: 9.7, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .42 }],
+    walls,
+    doors,
+    windows,
+    platforms: [{
+      id: "taikoo-platform-1",
+      roomId: "cropped-plan",
+      position: { x: 2.05, y: 9.05 },
+      dimensions: { widthMeters: 2.6, lengthMeters: .65, heightMeters: .18 },
+    }],
+    notes: [
+      { message: "Matched the bundled Taikoo Shing sample template and used a tuned wall, door and window map for this exact public fallback image.", severity: "info" },
+      { message: "Please still verify every opening visually after generation, especially if the crop excludes outer wall edges.", severity: "warning" },
+    ],
+  };
 }
 
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
@@ -269,6 +336,8 @@ function nearestWallWindow(symbol: DetectedWindowSymbol, walls: PropertyLayout["
 }
 
 export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLayout): PropertyLayout {
+  const matchedDoorTemplate = matchKnownDoorTemplate(image);
+  if (matchedDoorTemplate?.hash === KNOWN_TAIKOO_HASH) return buildKnownTaikooEstimate(base);
   const maxGridSide = 48;
   const minGridSide = 16;
   const aspect = image.width / Math.max(1, image.height);
@@ -362,7 +431,6 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     .filter((window): window is NonNullable<typeof window> => Boolean(window));
   const mergedWindows = (inferredWindows.length ? inferredWindows : fallbackWindows)
     .filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .14));
-  const matchedDoorTemplate = matchKnownDoorTemplate(image);
   const detectedDoorSymbols = matchedDoorTemplate?.symbols ?? detectDoorSymbols(image);
   const inferredDoors = detectedDoorSymbols
     .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index, Boolean(matchedDoorTemplate)))

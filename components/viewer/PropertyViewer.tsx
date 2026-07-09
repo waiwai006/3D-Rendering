@@ -174,7 +174,7 @@ function Furnishing({ furnishing, selected, styleId, previewPosition, ghost, onS
   if (!item) return null;
   const mountHeight = item.shape === "aircon" ? 1.85 : 0;
   const position = previewPosition ?? furnishing.position;
-  if (ghost) return <group position={[position.x, mountHeight, position.y]} rotation={[0, THREE.MathUtils.degToRad(furnishing.rotationDegrees), 0]}><FurnitureModel item={item} selected={selected} styleId={styleId} opacity={.45} /></group>;
+  if (ghost) return <group position={[position.x, mountHeight, position.y]} rotation={[0, THREE.MathUtils.degToRad(furnishing.rotationDegrees), 0]} raycast={() => null}><FurnitureModel item={item} selected={selected} styleId={styleId} opacity={.45} /></group>;
   return <group position={[position.x, mountHeight, position.y]} rotation={[0, THREE.MathUtils.degToRad(furnishing.rotationDegrees), 0]} onPointerDown={(event) => { event.stopPropagation(); onSelect?.(); dragStart.current = { x: event.point.x, z: event.point.z }; }} onPointerUp={(event) => { event.stopPropagation(); const start = dragStart.current; dragStart.current = undefined; if (!start) return; const delta = { x: event.point.x - start.x, y: event.point.z - start.z }; if (Math.hypot(delta.x, delta.y) > .08) onDragMove?.(furnishing.id, delta); }} onClick={(event) => { event.stopPropagation(); onSelect?.(); }}><FurnitureModel item={item} selected={selected} styleId={styleId} opacity={1} /></group>;
 }
 

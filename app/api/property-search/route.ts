@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { expandEstateQueries } from "@/lib/estate-aliases";
 import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
-import type { FloorPlanCandidate, PropertySearchRequest, PropertySearchResponse } from "@/lib/property-search";
+import { buildFloorPlanMatchQuality, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
 
@@ -69,6 +69,7 @@ async function candidatesFromEstatePage(url: string, estateName: string, request
     imageUrl,
     confidence: Number(confidence.toFixed(2)),
     matchedFields,
+    matchQuality: buildFloorPlanMatchQuality(request, matchedFields, Number(confidence.toFixed(2))),
     requiresVisualConfirmation: true,
   }));
 }
@@ -103,6 +104,7 @@ async function candidatesFromCentalineListings(searchQuery: string, estateName: 
       imageUrl,
       confidence: Number(confidence.toFixed(2)),
       matchedFields,
+      matchQuality: buildFloorPlanMatchQuality(request, matchedFields, Number(confidence.toFixed(2))),
       requiresVisualConfirmation: true,
     }));
   }));
