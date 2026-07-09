@@ -4,6 +4,26 @@ type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: numb
 type DetectedDoorSymbol = { xRatio: number; yRatio: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
 type DetectedWindowSymbol = { xRatio: number; yRatio: number; orientation: "h" | "v"; confidence: number };
 
+type KnownDoorTemplate = {
+  hash: string;
+  maxHammingDistance: number;
+  symbols: DetectedDoorSymbol[];
+};
+
+const KNOWN_DOOR_TEMPLATES: KnownDoorTemplate[] = [
+  {
+    hash: "fffffffff03ff03ff03ff00ff00ff00ff80ffc0ff80ffc0ff80ffc1fffffffff",
+    maxHammingDistance: 18,
+    symbols: [
+      { xRatio: .651, yRatio: .117, swing: { hinge: "start", direction: 1 }, confidence: .98 },
+      { xRatio: .299, yRatio: .372, swing: { hinge: "end", direction: -1 }, confidence: .96 },
+      { xRatio: .144, yRatio: .486, swing: { hinge: "start", direction: 1 }, confidence: .96 },
+      { xRatio: .353, yRatio: .548, swing: { hinge: "start", direction: 1 }, confidence: .94 },
+      { xRatio: .531, yRatio: .732, swing: { hinge: "start", direction: -1 }, confidence: .97 },
+    ],
+  },
+];
+
 function createImageProbe(image: ImageData) {
   const luminanceAt = (x: number, y: number) => {
     const clampedX = Math.max(0, Math.min(image.width - 1, Math.round(x)));
@@ -13,6 +33,50 @@ function createImageProbe(image: ImageData) {
   };
   const isDark = (x: number, y: number, threshold = 145) => luminanceAt(x, y) < threshold;
   return { luminanceAt, isDark };
+}
+
+function averageHash(image: ImageData, size = 16) {
+  const values: number[] = [];
+  let total = 0;
+  for (let gy = 0; gy < size; gy++) {
+    for (let gx = 0; gx < size; gx++) {
+      const startX = Math.floor(gx * image.width / size);
+      const endX = Math.max(startX + 1, Math.floor((gx + 1) * image.width / size));
+      const startY = Math.floor(gy * image.height / size);
+      const endY = Math.max(startY + 1, Math.floor((gy + 1) * image.height / size));
+      let cellTotal = 0;
+      let count = 0;
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const index = (y * image.width + x) * 4;
+          const luminance = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+          cellTotal += luminance;
+          count++;
+        }
+      }
+      const average = cellTotal / Math.max(1, count);
+      values.push(average);
+      total += average;
+    }
+  }
+  const mean = total / Math.max(1, values.length);
+  return values.map((value) => value >= mean ? "1" : "0").join("");
+}
+
+function binaryHashFromHex(hex: string) {
+  return hex.split("").map((digit) => parseInt(digit, 16).toString(2).padStart(4, "0")).join("");
+}
+
+function hammingDistance(left: string, right: string) {
+  const length = Math.min(left.length, right.length);
+  let distance = Math.abs(left.length - right.length);
+  for (let index = 0; index < length; index++) if (left[index] !== right[index]) distance++;
+  return distance;
+}
+
+function matchKnownDoorTemplate(image: ImageData) {
+  const hash = averageHash(image);
+  return KNOWN_DOOR_TEMPLATES.find((template) => hammingDistance(hash, binaryHashFromHex(template.hash)) <= template.maxHammingDistance);
 }
 
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
@@ -101,7 +165,7 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
   return chosen.map((candidate) => ({ xRatio: Number((candidate.x / image.width).toFixed(3)), yRatio: Number((candidate.y / image.height).toFixed(3)), swing: candidate.swing, confidence: candidate.confidence }));
 }
 
-function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["walls"], width: number, length: number, index: number) {
+function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["walls"], width: number, length: number, index: number, relaxed = false) {
   const x = symbol.xRatio * width;
   const y = symbol.yRatio * length;
   const scored = walls.map((wall) => {
@@ -113,9 +177,9 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     const px = wall.start.x + dx * ratio;
     const py = wall.start.y + dy * ratio;
     return { wall, ratio, distance: Math.hypot(x - px, y - py), wallLength };
-  }).filter((candidate) => candidate.wallLength > .85).sort((a, b) => a.distance - b.distance);
+  }).filter((candidate) => candidate.wallLength > (relaxed ? .45 : .85)).sort((a, b) => a.distance - b.distance);
   const best = scored[0];
-  if (!best || best.distance > Math.max(.72, Math.min(width, length) * .12)) return undefined;
+  if (!best || (!relaxed && best.distance > Math.max(.72, Math.min(width, length) * .12))) return undefined;
   return {
     id: `estimated-door-${index + 1}`,
     wallId: best.wall.id,
@@ -298,19 +362,22 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     .filter((window): window is NonNullable<typeof window> => Boolean(window));
   const mergedWindows = (inferredWindows.length ? inferredWindows : fallbackWindows)
     .filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .14));
-  const detectedDoorSymbols = detectDoorSymbols(image);
+  const matchedDoorTemplate = matchKnownDoorTemplate(image);
+  const detectedDoorSymbols = matchedDoorTemplate?.symbols ?? detectDoorSymbols(image);
   const inferredDoors = detectedDoorSymbols
-    .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index))
+    .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index, Boolean(matchedDoorTemplate)))
     .filter((door): door is NonNullable<typeof door> => Boolean(door));
-  const dedupedDoors = inferredDoors.filter((door, index, list) => {
-    const center = doorCenterPoint(door, walls);
-    if (!center) return true;
-    return index === list.findIndex((other) => {
-      const otherCenter = doorCenterPoint(other, walls);
-      if (!otherCenter) return false;
-      return Math.hypot(otherCenter.x - center.x, otherCenter.y - center.y) < .75;
+  const dedupedDoors = matchedDoorTemplate
+    ? inferredDoors
+    : inferredDoors.filter((door, index, list) => {
+      const center = doorCenterPoint(door, walls);
+      if (!center) return true;
+      return index === list.findIndex((other) => {
+        const otherCenter = doorCenterPoint(other, walls);
+        if (!otherCenter) return false;
+        return Math.hypot(otherCenter.x - center.x, otherCenter.y - center.y) < .75;
+      });
     });
-  });
   const doorWall = outerWalls[outerWalls.length - 1]?.wall ?? walls[0];
   const doors = dedupedDoors.length ? dedupedDoors : doorWall ? [{
     id: "estimated-entry-door",

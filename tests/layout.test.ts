@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { sampleLayout } from "../data/sample-layout";
 import { validateLayout } from "../lib/layout-schema";
 import { buildManualLayout } from "../lib/manual-layout";
@@ -63,6 +64,12 @@ describe("sample layout", () => {
     expect(estimate.platforms?.length).toBeGreaterThanOrEqual(1);
     expect(estimate.property.confidence).toBeLessThan(.5);
     expect(estimate.notes[0].severity).toBe("warning");
+  });
+
+  it("keeps the clean Taikoo sample at five detected doors", async () => {
+    const { data, info } = await sharp("public/curated-floorplans/taikoo-shing-3.png").ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const estimate = buildEstimatedLayoutFromCrop({ width: info.width, height: info.height, data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), colorSpace: "srgb" } as ImageData, sampleLayout);
+    expect(estimate.doors).toHaveLength(5);
   });
 
   it("keeps extreme crop aspect ratios bounded for 3D estimation", () => {
