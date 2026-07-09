@@ -85,6 +85,13 @@ describe("sample layout", () => {
     ]);
   });
 
+  it("detects several openings in the South Horizons sample", async () => {
+    const { data, info } = await sharp("public/curated-floorplans/south-horizons-1.png").ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const estimate = buildEstimatedLayoutFromCrop({ width: info.width, height: info.height, data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), colorSpace: "srgb" } as ImageData, sampleLayout);
+    expect(estimate.doors.length).toBeGreaterThanOrEqual(3);
+    expect(estimate.windows.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("keeps extreme crop aspect ratios bounded for 3D estimation", () => {
     const width = 2; const height = 5000; const data = new Uint8ClampedArray(width * height * 4).fill(255);
     const estimate = buildEstimatedLayoutFromCrop({ width, height, data, colorSpace: "srgb" } as ImageData, sampleLayout);
@@ -119,8 +126,8 @@ describe("sample layout", () => {
 
   it("provides curated public Centaline fallbacks for common Chinese searches", () => {
     expect(curatedFloorPlanCandidates({ estate: "\u592a\u53e4\u57ce" }).length).toBeGreaterThanOrEqual(3);
-    expect(curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6" }).length).toBeGreaterThanOrEqual(3);
-    expect(curatedFloorPlanCandidates({ estate: "\u5eb7\u57ce" }).length).toBeGreaterThanOrEqual(3);
+    expect(curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6" }).every((candidate) => candidate.planScope === "unit" || candidate.planScope === "estate")).toBe(true);
+    expect(curatedFloorPlanCandidates({ estate: "\u5eb7\u57ce" })[0]?.planScope).toBe("site");
   });
 
   it("explains match quality gaps before a candidate is used for 3D", () => {
@@ -131,6 +138,12 @@ describe("sample layout", () => {
     expect(quality.nextAction).toContain("missing fields");
     const [candidate] = curatedFloorPlanCandidates({ estate: "\u592a\u53e4\u57ce", tower: "Kam Din Terrace", flat: "H" });
     expect(candidate.matchQuality?.missing).toEqual(["tower", "flat"]);
+  });
+
+  it("uses curated unit metadata to narrow South Horizons matches", () => {
+    const [candidate] = curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6", flat: "C" });
+    expect(candidate.planScope).toBe("unit");
+    expect(candidate.matchedFields).toEqual(expect.arrayContaining(["estate", "flat"]));
   });
 
   it("uses positive real-world furnishing dimensions", () => {
