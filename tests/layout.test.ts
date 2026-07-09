@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { sampleLayout } from "../data/sample-layout";
 import { validateLayout } from "../lib/layout-schema";
-import { buildFloorPlanMatchQuality } from "../lib/property-search";
+import { buildFloorPlanMatchQuality, buildSourceMatchedFields } from "../lib/property-search";
 import { buildManualLayout } from "../lib/manual-layout";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls } from "../lib/source-match";
 import { buildEstimatedLayoutFromCrop } from "../lib/image-floorplan";
@@ -144,6 +144,13 @@ describe("sample layout", () => {
     const [candidate] = curatedFloorPlanCandidates({ estate: "\u6d77\u6021\u534a\u5cf6", flat: "C" });
     expect(candidate.planScope).toBe("unit");
     expect(candidate.matchedFields).toEqual(expect.arrayContaining(["estate", "flat"]));
+  });
+
+  it("matches unit details from source-specific page wording", () => {
+    const sourceText = "South Horizons Tower 12, 18/F, Flat D. 第12座 18樓 D室";
+    const matched = buildSourceMatchedFields({ estate: "South Horizons", tower: "T12", floor: "18", flat: "D" }, sourceText);
+    expect(matched).toEqual(expect.arrayContaining(["estate", "tower", "floor", "flat"]));
+    expect(buildSourceMatchedFields({ estate: "South Horizons", block: "3" }, "Block 3 with seaview layout")).toEqual(expect.arrayContaining(["estate", "block"]));
   });
 
   it("uses positive real-world furnishing dimensions", () => {

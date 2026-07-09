@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { expandEstateQueries } from "@/lib/estate-aliases";
 import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
-import { buildFloorPlanMatchQuality, buildUnitMatchedFields, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
+import { buildFloorPlanMatchQuality, buildSourceMatchedFields, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
 import { estateMatchScore, estateNameFromSourceUrl, extractCentalineFloorPlanImages, extractCentalineListingDetailUrls, normalizeSourceText } from "@/lib/source-match";
 import type { SourceCoverage } from "@/lib/property-search";
 
@@ -54,9 +54,8 @@ async function candidatesFromEstatePage(url: string, estateName: string, request
   });
   if (!response.ok) return [];
   const html = await response.text();
-  const pageText = normalizeSourceText(html.replace(/<[^>]+>/g, " "));
-  const detailFields: Array<[string, string | undefined]> = [["tower", request.tower], ["block", request.block], ["floor", request.floor], ["flat", request.flat]];
-  const matchedFields = ["estate", ...detailFields.filter(([, value]) => value && pageText.includes(normalizeSourceText(value))).map(([key]) => key)];
+  const pageText = html.replace(/<[^>]+>/g, " ");
+  const matchedFields = buildSourceMatchedFields(request, pageText);
   const detailBonus = Math.min(.1, (matchedFields.length - 1) * .025);
   const confidence = Math.min(.86, .58 + baseScore * .18 + detailBonus);
   return extractCentalineFloorPlanImages(html).slice(0, 8).map((imageUrl, index): FloorPlanCandidate => ({
@@ -92,9 +91,8 @@ async function candidatesFromCentalineListings(searchQuery: string, estateName: 
     });
     if (!detailResponse.ok) return [];
     const detailHtml = await detailResponse.text();
-    const pageText = normalizeSourceText(detailHtml.replace(/<[^>]+>/g, " "));
-    const detailFields: Array<[string, string | undefined]> = [["tower", request.tower], ["block", request.block], ["floor", request.floor], ["flat", request.flat]];
-    const matchedFields = ["estate", ...detailFields.filter(([, value]) => value && pageText.includes(normalizeSourceText(value))).map(([key]) => key)];
+    const pageText = detailHtml.replace(/<[^>]+>/g, " ");
+    const matchedFields = buildSourceMatchedFields(request, pageText);
     const confidence = Math.min(.9, .64 + baseScore * .18 + Math.min(.1, (matchedFields.length - 1) * .025));
     return extractCentalineFloorPlanImages(detailHtml).slice(0, 4).map((imageUrl, index): FloorPlanCandidate => ({
       id: `centaline-listing-${Buffer.from(`${detailUrl}-${index}`).toString("base64url").slice(0, 18)}`,
