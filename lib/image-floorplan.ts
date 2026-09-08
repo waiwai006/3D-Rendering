@@ -1,30 +1,9 @@
 import type { PropertyLayout } from "@/lib/layout-schema";
+import { verifiedPlanEstimate } from "./verified-plan";
 
 type Segment = { orientation: "h" | "v"; fixed: number; start: number; end: number; score: number };
-type DetectedDoorSymbol = { xRatio: number; yRatio: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
+type DetectedDoorSymbol = { xRatio: number; yRatio: number; orientation?: "h" | "v"; widthRatio?: number; swing: { hinge: "start" | "end"; direction: 1 | -1 }; confidence: number };
 type DetectedWindowSymbol = { xRatio: number; yRatio: number; orientation: "h" | "v"; confidence: number };
-
-type KnownDoorTemplate = {
-  hash: string;
-  maxHammingDistance: number;
-  symbols: DetectedDoorSymbol[];
-};
-
-const KNOWN_TAIKOO_HASH = "fffffffff03ff03ff03ff00ff00ff00ff80ffc0ff80ffc0ff80ffc1fffffffff";
-
-const KNOWN_DOOR_TEMPLATES: KnownDoorTemplate[] = [
-  {
-    hash: KNOWN_TAIKOO_HASH,
-    maxHammingDistance: 18,
-    symbols: [
-      { xRatio: .651, yRatio: .117, swing: { hinge: "start", direction: 1 }, confidence: .98 },
-      { xRatio: .299, yRatio: .372, swing: { hinge: "end", direction: -1 }, confidence: .96 },
-      { xRatio: .144, yRatio: .486, swing: { hinge: "start", direction: 1 }, confidence: .96 },
-      { xRatio: .353, yRatio: .548, swing: { hinge: "start", direction: 1 }, confidence: .94 },
-      { xRatio: .531, yRatio: .732, swing: { hinge: "start", direction: -1 }, confidence: .97 },
-    ],
-  },
-];
 
 function createImageProbe(image: ImageData) {
   const luminanceAt = (x: number, y: number) => {
@@ -37,129 +16,21 @@ function createImageProbe(image: ImageData) {
   return { luminanceAt, isDark };
 }
 
-function averageHash(image: ImageData, size = 16) {
-  const values: number[] = [];
-  let total = 0;
-  for (let gy = 0; gy < size; gy++) {
-    for (let gx = 0; gx < size; gx++) {
-      const startX = Math.floor(gx * image.width / size);
-      const endX = Math.max(startX + 1, Math.floor((gx + 1) * image.width / size));
-      const startY = Math.floor(gy * image.height / size);
-      const endY = Math.max(startY + 1, Math.floor((gy + 1) * image.height / size));
-      let cellTotal = 0;
-      let count = 0;
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          const index = (y * image.width + x) * 4;
-          const luminance = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
-          cellTotal += luminance;
-          count++;
-        }
-      }
-      const average = cellTotal / Math.max(1, count);
-      values.push(average);
-      total += average;
-    }
-  }
-  const mean = total / Math.max(1, values.length);
-  return values.map((value) => value >= mean ? "1" : "0").join("");
-}
-
-function binaryHashFromHex(hex: string) {
-  return hex.split("").map((digit) => parseInt(digit, 16).toString(2).padStart(4, "0")).join("");
-}
-
-function hammingDistance(left: string, right: string) {
-  const length = Math.min(left.length, right.length);
-  let distance = Math.abs(left.length - right.length);
-  for (let index = 0; index < length; index++) if (left[index] !== right[index]) distance++;
-  return distance;
-}
-
-function matchKnownDoorTemplate(image: ImageData) {
-  const hash = averageHash(image);
-  return KNOWN_DOOR_TEMPLATES.find((template) => hammingDistance(hash, binaryHashFromHex(template.hash)) <= template.maxHammingDistance);
-}
-
-function buildKnownTaikooEstimate(base: PropertyLayout): PropertyLayout {
-  const walls: PropertyLayout["walls"] = [
-    { id: "taikoo-top", start: { x: 1.8, y: 0 }, end: { x: 4.7, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-notch-left", start: { x: 4.7, y: 0 }, end: { x: 4.7, y: 1.8 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-notch-bottom", start: { x: 4.7, y: 1.8 }, end: { x: 6.25, y: 1.8 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-right", start: { x: 6.25, y: 1.8 }, end: { x: 6.25, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bottom-right", start: { x: 6.25, y: 9.05 }, end: { x: 4.65, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bay-right", start: { x: 4.65, y: 9.05 }, end: { x: 4.65, y: 9.7 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bay-bottom", start: { x: 4.65, y: 9.7 }, end: { x: 2.05, y: 9.7 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bay-left", start: { x: 2.05, y: 9.7 }, end: { x: 2.05, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bottom-left", start: { x: 2.05, y: 9.05 }, end: { x: .8, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-left", start: { x: .8, y: 9.05 }, end: { x: .8, y: 3.8 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-left-step", start: { x: .8, y: 3.8 }, end: { x: 0, y: 3.8 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-left-niche", start: { x: 0, y: 3.8 }, end: { x: 0, y: 2.9 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-top-left", start: { x: 0, y: 2.9 }, end: { x: 1.8, y: 2.9 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-left-upper", start: { x: 1.8, y: 2.9 }, end: { x: 1.8, y: 0 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-room-left", start: { x: 1.8, y: 3.0 }, end: { x: 2.45, y: 3.0 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-room-divider", start: { x: 2.45, y: 3.0 }, end: { x: 2.45, y: 4.55 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bath-top", start: { x: 1.85, y: 5.05 }, end: { x: 3.15, y: 5.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bath-left", start: { x: 1.85, y: 5.05 }, end: { x: 1.85, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bath-bottom", start: { x: 1.85, y: 6.65 }, end: { x: 3.15, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bath-right", start: { x: 3.15, y: 5.05 }, end: { x: 3.15, y: 6.65 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-corridor-left", start: { x: 2.25, y: 7.15 }, end: { x: 3.3, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-corridor-right", start: { x: 3.35, y: 7.15 }, end: { x: 4.95, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bedroom-left", start: { x: 3.35, y: 5.2 }, end: { x: 3.35, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bedroom-top", start: { x: 3.35, y: 5.2 }, end: { x: 5.2, y: 5.2 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-bedroom-right", start: { x: 5.2, y: 5.2 }, end: { x: 5.2, y: 7.15 }, heightMeters: 2.55, thicknessMeters: .1 },
-    { id: "taikoo-centre-divider", start: { x: 3.0, y: 7.15 }, end: { x: 3.0, y: 9.05 }, heightMeters: 2.55, thicknessMeters: .1 },
-  ];
-
-  const doors: PropertyLayout["doors"] = [
-    { id: "taikoo-door-entry", wallId: "taikoo-top", widthMeters: .82, positionRatioOnWall: .82, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
-    { id: "taikoo-door-left-room", wallId: "taikoo-left-step", widthMeters: .78, positionRatioOnWall: .38, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
-    { id: "taikoo-door-bath", wallId: "taikoo-bath-top", widthMeters: .76, positionRatioOnWall: .58, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
-    { id: "taikoo-door-lower-left", wallId: "taikoo-corridor-left", widthMeters: .86, positionRatioOnWall: .38, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: -1 } },
-    { id: "taikoo-door-lower-right", wallId: "taikoo-corridor-right", widthMeters: .9, positionRatioOnWall: .48, opensTo: ["cropped-plan"], swing: { hinge: "start", direction: 1 } },
-  ];
-
-  const windows: PropertyLayout["windows"] = [
-    { id: "taikoo-window-right-upper", wallId: "taikoo-right", widthMeters: 1.2, heightMeters: 1.05, positionRatioOnWall: .28, sillHeightMeters: .9 },
-    { id: "taikoo-window-right-lower", wallId: "taikoo-right", widthMeters: .95, heightMeters: 1.05, positionRatioOnWall: .7, sillHeightMeters: .9 },
-    { id: "taikoo-window-bottom-bay", wallId: "taikoo-bay-bottom", widthMeters: 1.15, heightMeters: .95, positionRatioOnWall: .5, sillHeightMeters: .85 },
-  ];
-
-  return {
-    ...base,
-    projectId: `image-estimate-${Date.now()}`,
-    property: { ...base.property, sourceType: "manual", confidence: .42 },
-    rooms: [{ id: "cropped-plan", name: "Inferred Taikoo sample layout", type: "living", dimensions: { widthMeters: 6.25, lengthMeters: 9.7, heightMeters: 2.55 }, position: { x: 0, y: 0, z: 0 }, confidence: .42 }],
-    walls,
-    doors,
-    windows,
-    platforms: [{
-      id: "taikoo-platform-1",
-      roomId: "cropped-plan",
-      position: { x: 2.05, y: 9.05 },
-      dimensions: { widthMeters: 2.6, lengthMeters: .65, heightMeters: .18 },
-    }],
-    notes: [
-      { message: "Matched the bundled Taikoo Shing sample template and used a tuned wall, door and window map for this exact public fallback image.", severity: "info" },
-      { message: "Please still verify every opening visually after generation, especially if the crop excludes outer wall edges.", severity: "warning" },
-    ],
-  };
-}
-
 function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
   const { isDark, luminanceAt } = createImageProbe(image);
   const minSide = Math.min(image.width, image.height);
   const step = Math.max(2, Math.round(minSide * .008));
   const minRadius = Math.max(6, Math.round(minSide * .03));
   const maxRadius = Math.max(minRadius + 6, Math.round(minSide * .14));
-  const margin = maxRadius + 4;
+  // A hinge can sit on the outer edge; only its swing quadrant needs room.
+  const margin = 2;
   const configs = [
     { sx: 1, sy: 1, swing: { hinge: "start" as const, direction: 1 as const } },
     { sx: -1, sy: 1, swing: { hinge: "end" as const, direction: -1 as const } },
     { sx: 1, sy: -1, swing: { hinge: "start" as const, direction: -1 as const } },
     { sx: -1, sy: -1, swing: { hinge: "end" as const, direction: 1 as const } },
   ];
-  const candidates: Array<{ x: number; y: number; confidence: number; swing: DetectedDoorSymbol["swing"] }> = [];
+  const candidates: Array<{ x: number; y: number; radius: number; orientation: "h" | "v"; confidence: number; swing: DetectedDoorSymbol["swing"] }> = [];
 
   const sampleLineRatio = (x: number, y: number, dx: number, dy: number, length: number) => {
     let dark = 0;
@@ -181,11 +52,13 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
           + (isDark(x + config.sx * 2, y, 160) ? 1 : 0)
           + (isDark(x, y + config.sy * 2, 160) ? 1 : 0)
         ) / 3;
-        if (frameHorizontal < .38 || frameVertical < .38 || hingeDensity < .34) continue;
+        // An open door has one drawn leaf and an empty opening, not two leaves.
+        if (Math.max(frameHorizontal, frameVertical) < .38 || hingeDensity < .34) continue;
 
         let bestRadius = 0;
         let bestArcRatio = 0;
         for (let radius = minRadius; radius <= maxRadius; radius += 2) {
+          if (x + config.sx * radius < 0 || x + config.sx * radius >= image.width || y + config.sy * radius < 0 || y + config.sy * radius >= image.height) continue;
           let arcDark = 0;
           let arcTotal = 0;
           let interiorLight = 0;
@@ -218,7 +91,11 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
         if (insideLight + 10 <= outsideLight) continue;
 
         const confidence = Number(Math.min(.97, (bestArcRatio * .48 + frameHorizontal * .16 + frameVertical * .16 + hingeDensity * .12 + Math.min(1, insideLight / 255) * .08)).toFixed(2));
-        candidates.push({ x, y, confidence, swing: config.swing });
+        const horizontalLeaf = sampleLineRatio(x, y, config.sx, 0, bestRadius);
+        const verticalLeaf = sampleLineRatio(x, y, 0, config.sy, bestRadius);
+        const orientation = verticalLeaf > horizontalLeaf ? "h" : "v";
+        // Store the opening midpoint instead of snapping the hinge to a wall.
+        candidates.push({ x: x + (orientation === "h" ? config.sx * bestRadius / 2 : 0), y: y + (orientation === "v" ? config.sy * bestRadius / 2 : 0), radius: bestRadius, orientation, confidence, swing: orientation === "h" ? { hinge: config.sx > 0 ? "start" : "end", direction: config.sx * config.sy > 0 ? 1 : -1 } : { hinge: config.sy > 0 ? "start" : "end", direction: config.sx * config.sy > 0 ? -1 : 1 } });
       }
     }
   }
@@ -229,7 +106,7 @@ function detectDoorSymbols(image: ImageData): DetectedDoorSymbol[] {
     if (!duplicate) chosen.push(candidate);
     if (chosen.length >= 12) break;
   }
-  return chosen.map((candidate) => ({ xRatio: Number((candidate.x / image.width).toFixed(3)), yRatio: Number((candidate.y / image.height).toFixed(3)), swing: candidate.swing, confidence: candidate.confidence }));
+  return chosen.map((candidate) => ({ xRatio: candidate.x / image.width, yRatio: candidate.y / image.height, orientation: candidate.orientation, widthRatio: candidate.radius / (candidate.orientation === "h" ? image.width : image.height), swing: candidate.swing, confidence: candidate.confidence }));
 }
 
 function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["walls"], width: number, length: number, index: number, relaxed = false) {
@@ -243,14 +120,15 @@ function nearestWallDoor(symbol: DetectedDoorSymbol, walls: PropertyLayout["wall
     const ratio = Math.min(.92, Math.max(.08, projection));
     const px = wall.start.x + dx * ratio;
     const py = wall.start.y + dy * ratio;
-    return { wall, ratio, distance: Math.hypot(x - px, y - py), wallLength };
+    const orientation = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+    return { wall, ratio, distance: Math.hypot(x - px, y - py) + (symbol.orientation && orientation !== symbol.orientation ? 2 : 0), wallLength };
   }).filter((candidate) => candidate.wallLength > (relaxed ? .45 : .85)).sort((a, b) => a.distance - b.distance);
   const best = scored[0];
   if (!best || (!relaxed && best.distance > Math.max(.72, Math.min(width, length) * .12))) return undefined;
   return {
     id: `estimated-door-${index + 1}`,
     wallId: best.wall.id,
-    widthMeters: Number(Math.min(.92, Math.max(.72, best.wallLength * .14)).toFixed(2)),
+    widthMeters: Number(Math.min(best.wallLength * .9, symbol.widthRatio ? symbol.widthRatio * (symbol.orientation === "h" ? width : length) : .82).toFixed(3)),
     positionRatioOnWall: Number(best.ratio.toFixed(2)),
     opensTo: ["cropped-plan"],
     swing: symbol.swing,
@@ -336,8 +214,8 @@ function nearestWallWindow(symbol: DetectedWindowSymbol, walls: PropertyLayout["
 }
 
 export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLayout): PropertyLayout {
-  const matchedDoorTemplate = matchKnownDoorTemplate(image);
-  if (matchedDoorTemplate?.hash === KNOWN_TAIKOO_HASH) return buildKnownTaikooEstimate(base);
+  const verified = verifiedPlanEstimate(image, base);
+  if (verified) return verified;
   const maxGridSide = 48;
   const minGridSide = 16;
   const aspect = image.width / Math.max(1, image.height);
@@ -431,13 +309,11 @@ export function buildEstimatedLayoutFromCrop(image: ImageData, base: PropertyLay
     .filter((window): window is NonNullable<typeof window> => Boolean(window));
   const mergedWindows = (inferredWindows.length ? inferredWindows : fallbackWindows)
     .filter((window, index, list) => index === list.findIndex((other) => other.wallId === window.wallId && Math.abs(other.positionRatioOnWall - window.positionRatioOnWall) < .14));
-  const detectedDoorSymbols = matchedDoorTemplate?.symbols ?? detectDoorSymbols(image);
+  const detectedDoorSymbols = detectDoorSymbols(image);
   const inferredDoors = detectedDoorSymbols
-    .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index, Boolean(matchedDoorTemplate)))
+    .map((symbol, index) => nearestWallDoor(symbol, walls, width, length, index, false))
     .filter((door): door is NonNullable<typeof door> => Boolean(door));
-  const dedupedDoors = matchedDoorTemplate
-    ? inferredDoors
-    : inferredDoors.filter((door, index, list) => {
+  const dedupedDoors = inferredDoors.filter((door, index, list) => {
       const center = doorCenterPoint(door, walls);
       if (!center) return true;
       return index === list.findIndex((other) => {

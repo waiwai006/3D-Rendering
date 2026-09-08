@@ -288,7 +288,10 @@ function FocusCamera({ room, offset }: { room?: PropertyLayout["rooms"][number];
     if (!room) return;
     const x = room.position.x + room.dimensions.widthMeters / 2;
     const z = room.position.y + room.dimensions.lengthMeters / 2;
-    camera.position.set(x + offset.x + 3.5, 4.2, z + offset.z + 4.8);
+    // Image estimates represent the entire flat as one room. Fit that extent
+    // rather than using a fixed bedroom-sized camera distance that hides doors.
+    const extent = Math.max(room.dimensions.widthMeters, room.dimensions.lengthMeters, 4);
+    camera.position.set(x + offset.x + extent * .45, extent * 1.65, z + offset.z + extent * .85);
     camera.lookAt(x + offset.x, 0, z + offset.z);
   }, [camera, offset.x, offset.z, room]);
   return null;

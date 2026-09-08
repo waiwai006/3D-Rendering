@@ -67,22 +67,35 @@ describe("sample layout", () => {
     expect(estimate.notes[0].severity).toBe("warning");
   });
 
-  it("keeps the clean Taikoo sample at five detected doors", async () => {
-    const { data, info } = await sharp("public/curated-floorplans/taikoo-shing-3.png").ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const estimate = buildEstimatedLayoutFromCrop({ width: info.width, height: info.height, data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), colorSpace: "srgb" } as ImageData, sampleLayout);
-    expect(estimate.doors).toHaveLength(5);
-    expect(estimate.doors.map((door) => door.wallId)).toEqual([
-      "taikoo-top",
-      "taikoo-left-step",
-      "taikoo-bath-top",
-      "taikoo-corridor-left",
-      "taikoo-corridor-right",
-    ]);
-    expect(estimate.windows.map((window) => window.wallId)).toEqual([
-      "taikoo-right",
-      "taikoo-right",
-      "taikoo-bay-bottom",
-    ]);
+  it.each([
+    { name: "original", left: 0, top: 0, size: 700, resize: 700 },
+    { name: "cropped margins", left: 180, top: 80, size: 440, resize: 660 },
+    { name: "smaller upload", left: 0, top: 0, size: 700, resize: 350 },
+  ])("locates all seven Taikoo doors: $name", async ({ left, top, size, resize }) => {
+    const height = top ? 550 : size;
+    const { data, info } = await sharp("public/curated-floorplans/taikoo-shing-3.png")
+      .extract({ left, top, width: size, height }).resize(resize).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const estimate = buildEstimatedLayoutFromCrop({ width: info.width, height: info.height, data: new Uint8ClampedArray(data), colorSpace: "srgb" } as ImageData, sampleLayout);
+    // Independently annotated opening midpoints in the original 700px drawing.
+    const expected = [[366.5,105],[270.5,235],[226,318],[327,386.5],[367,438.5],[327,483.5],[367,483.5]];
+    expect(estimate.doors).toHaveLength(7);
+    expect(validateLayout(estimate)).toEqual([]);
+    for (const [x, y] of expected) {
+      const meters = 10 / Math.max(size, height);
+      const hits = estimate.doors.filter(door => {
+        const wall = estimate.walls.find(wall => wall.id === door.wallId)!;
+        const px = wall.start.x + (wall.end.x-wall.start.x)*door.positionRatioOnWall;
+        const py = wall.start.y + (wall.end.y-wall.start.y)*door.positionRatioOnWall;
+        return Math.hypot(px-(x-left)*meters, py-(y-top)*meters) < .09;
+      });
+      expect(hits, `door at ${x},${y}`).toHaveLength(1);
+    }
+    for (const door of estimate.doors) {
+      const wall = estimate.walls.find(w => w.id === door.wallId)!;
+      const length = Math.hypot(wall.end.x-wall.start.x,wall.end.y-wall.start.y);
+      expect(door.positionRatioOnWall * length - door.widthMeters/2).toBeGreaterThanOrEqual(0);
+      expect(door.positionRatioOnWall * length + door.widthMeters/2).toBeLessThanOrEqual(length);
+    }
   });
 
   it("detects several openings in the South Horizons sample", async () => {
