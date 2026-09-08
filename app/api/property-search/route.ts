@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { expandEstateQueries } from "@/lib/estate-aliases";
 import { curatedFloorPlanCandidates } from "@/lib/curated-floorplans";
 import { buildFloorPlanMatchQuality, buildSourceMatchedFields, type FloorPlanCandidate, type PropertySearchRequest, type PropertySearchResponse } from "@/lib/property-search";
@@ -59,7 +60,7 @@ async function candidatesFromEstatePage(url: string, estateName: string, request
   const detailBonus = Math.min(.1, (matchedFields.length - 1) * .025);
   const confidence = Math.min(.86, .58 + baseScore * .18 + detailBonus);
   return extractCentalineFloorPlanImages(html).slice(0, 8).map((imageUrl, index): FloorPlanCandidate => ({
-    id: `centaline-${Buffer.from(`${url}-${index}`).toString("base64url").slice(0, 18)}`,
+    id: `centaline-${createHash("sha256").update(`${url}-${index}`).digest("hex").slice(0, 24)}`,
     estateName,
     title: `${estateName} floor-plan candidate ${index + 1}`,
     source: "Centaline",
@@ -95,7 +96,7 @@ async function candidatesFromCentalineListings(searchQuery: string, estateName: 
     const matchedFields = buildSourceMatchedFields(request, pageText);
     const confidence = Math.min(.9, .64 + baseScore * .18 + Math.min(.1, (matchedFields.length - 1) * .025));
     return extractCentalineFloorPlanImages(detailHtml).slice(0, 4).map((imageUrl, index): FloorPlanCandidate => ({
-      id: `centaline-listing-${Buffer.from(`${detailUrl}-${index}`).toString("base64url").slice(0, 18)}`,
+      id: `centaline-listing-${createHash("sha256").update(`${detailUrl}-${index}`).digest("hex").slice(0, 24)}`,
       estateName,
       title: `${estateName} listing floor-plan candidate ${index + 1}`,
       source: "Centaline",

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-const ALLOWED = new Set(["hk.centanet.com", "www.squarefoot.com.hk", "in1.squarefoot.com.hk", "www.28hse.com", "cdn.spacious.hk"]);
+const ALLOWED = new Set(["hk.centanet.com", "hkcdn.centanet.com", "hkfloorplan.centanet.com", "www.squarefoot.com.hk", "in1.squarefoot.com.hk", "www.28hse.com", "cdn.spacious.hk"]);
 
 export async function GET(request: Request) {
   try {
